@@ -37,6 +37,18 @@ Glaze is a lightweight Slack app that creates recurring 1-on-1 coffee chat match
 - `supabase/schema.sql` - database schema
 - `manifest/slack_manifest.yaml` - Slack app manifest
 
+## Architecture
+
+```mermaid
+graph LR
+    USERS["👤 Slack Users"] -->|"commands & events"| API["🐍 Glaze API<br>(FastAPI)"]
+    API -->|"DMs & messages"| USERS
+    API -->|"read / write"| DB["🗄 Supabase<br>(Postgres)"]
+    API -->|"icebreakers"| AI["🤖 OpenAI<br>(optional)"]
+    DB -->|"pg_cron<br>Mon & Thu 08:00 UTC"| API
+    ADMIN["🖥 Admin<br>Dashboard"] -->|"login + view data"| API
+```
+
 ## Environment variables
 
 Copy `.env.example` to `.env`.
@@ -105,10 +117,55 @@ Recommended schedulers:
 
 Example schedule:
 
-- Monday 10:00 AM local company time: `/tasks/run-cycle`
-- Thursday 10:00 AM local company time: `/tasks/run-nudges`
+- Monday 08:00 AM UTC: `/tasks/run-cycle`
+- Thursday 08:00 AM UTC: `/tasks/run-nudges`
 
 Protect those endpoints using `X-Admin-Token: $ADMIN_TRIGGER_TOKEN`.
+
+### Supabase pg_cron (simplest option)
+
+Supabase projects ship with `pg_cron` and `pg_net` enabled. Run the schedule block at the bottom of `supabase/schema.sql` once in the **Supabase SQL Editor** — no CLI or extra deploy needed.
+
+Replace the placeholder values first:
+
+```sql
+-- Monday 08:00 UTC
+select cron.schedule(
+  'glaze-run-cycle',
+  '0 8 * * 1',
+  $$
+    select net.http_post(
+      url     := 'https://your-app.com/tasks/run-cycle',
+      headers := '{"x-admin-token": "your-admin-trigger-token"}'::jsonb
+    );
+  $$
+);
+
+-- Thursday 08:00 UTC
+select cron.schedule(
+  'glaze-run-nudges',
+  '0 8 * * 4',
+  $$
+    select net.http_post(
+      url     := 'https://your-app.com/tasks/run-nudges',
+      headers := '{"x-admin-token": "your-admin-trigger-token"}'::jsonb
+    );
+  $$
+);
+```
+
+Inspect jobs and run history:
+
+```sql
+select * from cron.job;
+select * from cron.job_run_details order by start_time desc limit 20;
+```
+
+Remove a job:
+
+```sql
+select cron.unschedule('glaze-run-cycle');
+```
 
 ## Rotating keys
 

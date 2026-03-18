@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncApp
 
 from glaze.db.repository import Repository
+from glaze.routes.admin import router as admin_router
 from glaze.routes.handlers import register_handlers
 from glaze.services.scheduler import SchedulerService
 from glaze.settings import get_settings
@@ -19,21 +20,22 @@ def create_app() -> FastAPI:
     slack_handler = AsyncSlackRequestHandler(slack_app)
 
     app = FastAPI(title='Glaze')
+    app.include_router(admin_router)
 
     @app.get('/health')
     async def health() -> dict:
         return {'ok': True}
 
     @app.post('/slack/events')
-    async def slack_events(req):
+    async def slack_events(req: Request):
         return await slack_handler.handle(req)
 
     @app.post('/slack/commands')
-    async def slack_commands(req):
+    async def slack_commands(req: Request):
         return await slack_handler.handle(req)
 
     @app.post('/slack/interactivity')
-    async def slack_interactivity(req):
+    async def slack_interactivity(req: Request):
         return await slack_handler.handle(req)
 
     @app.post('/tasks/run-cycle')

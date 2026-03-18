@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     app_base_url: str = 'http://localhost:3000'
     admin_trigger_token: str = 'change-me'
+    admin_dashboard_password: str = 'password'
 
     glaze_default_frequency: str = 'biweekly'
     glaze_cross_department_weight: int = 20

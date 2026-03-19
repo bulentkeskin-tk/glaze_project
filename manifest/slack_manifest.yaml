@@ -1,3 +1,11 @@
+# Glaze Slack App Manifest
+# 
+# IMPORTANT: Before using this manifest, replace oozkjnyhvrndobksdyld with your actual
+# Supabase project reference (found in your Supabase project URL).
+# Example: abcdefghijklmnopqrst
+#
+# All URLs point to a single Edge Function endpoint that handles all Slack interactions.
+
 display_information:
   name: Glaze
   description: Lightweight AI-assisted coffee chat pairing bot
@@ -12,34 +20,34 @@ features:
     always_online: false
   slash_commands:
     - command: /glaze-on
-      url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/commands
+      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
       description: Opt in to Glaze
       usage_hint: "Opt in to receive AI-suggested coffee chat pairings in your DMs"
       should_escape: false
     - command: /glaze-off
-      url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/commands
+      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
       description: Opt out of Glaze
       usage_hint: "Opt out to stop receiving AI-suggested coffee chat pairings in your DMs"
       should_escape: false
     - command: /glaze-frequency
-      url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/commands
+      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
       description: Set weekly, biweekly, or monthly cadence
       usage_hint: weekly|biweekly|monthly
       should_escape: false
     - command: /glaze-snooze
-      url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/commands
+      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
       description: Snooze Glaze for 1-4 weeks
       usage_hint: 1|2|3|4
       should_escape: false
-    - command: /glaze-home
-      url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/commands
-      description: Refresh the Glaze Home tab
-      usage_hint: "Refresh your Glaze Home tab to see the latest updates"
-      should_escape: false
     - command: /glaze-run-now
-      url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/commands
+      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
       description: Admin test run
       usage_hint: "Trigger an immediate Glaze cycle for testing purposes"
+      should_escape: false
+    - command: /glaze-refresh-profiles
+      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
+      description: Admin - re-sync all user profiles from Slack
+      usage_hint: "Re-fetches name and department for every user in the database"
       should_escape: false
 oauth_config:
   scopes:
@@ -61,12 +69,12 @@ oauth_config:
       - users.profile:read
 settings:
   event_subscriptions:
-    request_url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/events
+    request_url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
     bot_events:
       - app_home_opened
   interactivity:
     is_enabled: true
-    request_url: https://nonconvergent-dilative-michell.ngrok-free.dev/slack/interactivity
+    request_url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

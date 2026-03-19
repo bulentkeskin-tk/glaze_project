@@ -1,12 +1,5 @@
--- ── Teardown (drop everything in safe dependency order) ──────────────────────
-select cron.unschedule('glaze-run-cycle')  where exists (select 1 from cron.job where jobname = 'glaze-run-cycle');
-select cron.unschedule('glaze-run-nudges') where exists (select 1 from cron.job where jobname = 'glaze-run-nudges');
-
-drop trigger if exists glaze_user_preferences_updated_at on glaze_user_preferences;
-drop function if exists set_updated_at();
-
-drop table if exists glaze_pair_events;
-drop table if exists glaze_user_preferences;
+-- ── Glaze Initial Schema ────────────────────────────────────────────────────
+-- This migration creates the core tables for the Glaze coffee chat matching app
 
 -- ── Extensions ────────────────────────────────────────────────────────────────
 create extension if not exists pg_cron;
@@ -53,34 +46,18 @@ create trigger glaze_user_preferences_updated_at
 before update on glaze_user_preferences
 for each row execute function set_updated_at();
 
--- ── Scheduled jobs (pg_cron + pg_net) ────────────────────────────────────────
--- Run this block once in the Supabase SQL Editor after setting your APP_BASE_URL
--- and ADMIN_TRIGGER_TOKEN values below.
+-- ── Row Level Security ────────────────────────────────────────────────────────
+-- RLS is disabled for these tables as they are accessed via service role only
+-- through Edge Functions that handle their own authorization
 
--- Monday 08:00 UTC – run the match cycle
-select cron.schedule(
-  'glaze-run-cycle',
-  '0 8 * * 1',
-  $$
-    select net.http_post(
-      url     := 'https://nonconvergent-dilative-michell.ngrok-free.dev/tasks/run-cycle',
-      headers := '{"x-admin-token": "your-admin-trigger-token"}'::jsonb
-    );
-  $$
-);
+alter table glaze_user_preferences enable row level security;
+alter table glaze_pair_events enable row level security;
 
--- Thursday 08:00 UTC – send nudges to silent pairs
-select cron.schedule(
-  'glaze-run-nudges',
-  '0 8 * * 4',
-  $$
-    select net.http_post(
-      url     := 'https://nonconvergent-dilative-michell.ngrok-free.dev/tasks/run-nudges',
-      headers := '{"x-admin-token": "your-admin-trigger-token"}'::jsonb
-    );
-  $$
-);
+-- Allow service role to access everything
+create policy "Service role has full access to user preferences"
+  on glaze_user_preferences for all
+  using (auth.jwt()->>'role' = 'service_role');
 
--- To inspect scheduled jobs:      select * from cron.job;
--- To inspect recent run results:  select * from cron.job_run_details order by start_time desc limit 20;
--- To remove a job:                select cron.unschedule('glaze-run-cycle');
+create policy "Service role has full access to pair events"
+  on glaze_pair_events for all
+  using (auth.jwt()->>'role' = 'service_role');

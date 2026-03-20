@@ -114,34 +114,37 @@ export class SchedulerService {
     };
   }
 
-  // ── Run Thursday nudges ──────────────────────────────────────────────────
+  // ── Run Thursday nudges (worker) ────────────────────────────────────────
+  // Claims up to batchSize pairs from last week's cycle and nudges any that
+  // have had no human messages since the intro. Safe to run concurrently —
+  // DB claim is atomic (FOR UPDATE SKIP LOCKED).
 
-  async runNudges(): Promise<NudgeResult> {
+  async runNudges(batchSize = 50): Promise<NudgeResult> {
     const currentDate = today();
-    const targetCycle = addWeeks(parseDate(currentDate), -1).split('T')[0]; // Last week's cycle
+    const targetCycle = addWeeks(parseDate(currentDate), -1).split('T')[0];
 
-    const pairRows = await this.repository.listPairsForNudges(targetCycle);
+    const pairRows = await this.repository.claimNudgeBatch(targetCycle, batchSize);
     const nudged: string[] = [];
 
     for (const row of pairRows) {
-      // Check conversation history
       const history = await this.client.conversations.history({
         channel: row.dm_channel_id,
         oldest: row.intro_ts,
         limit: 20,
       });
 
-      // Look for human messages (not bot messages)
       const humanMessages = (history.messages || []).filter(
         (m: any) =>
           (m.user === row.user_a || m.user === row.user_b) &&
-          !m.subtype // Exclude bot messages and other subtypes
+          !m.subtype
       );
 
-      // If there are human messages, skip the nudge
-      if (humanMessages.length > 0) continue;
+      if (humanMessages.length > 0) {
+        // Already talking — mark as sent so it won't be reclaimed
+        await this.repository.markNudgeSent(row.id);
+        continue;
+      }
 
-      // Send nudge
       await this.client.chat.postMessage({
         channel: row.dm_channel_id,
         text: '☕ Friendly nudge: looks like this chat has not started yet. Maybe pick a time before the week gets away from you?',

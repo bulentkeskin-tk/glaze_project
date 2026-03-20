@@ -241,6 +241,18 @@ export class Repository {
     return (data || []) as PairEvent[];
   }
 
+  async claimNudgeBatch(cycleDate: string, batchSize: number): Promise<PairEvent[]> {
+    const { data, error } = await this.client.rpc('claim_nudge_batch', {
+      p_cycle_date: cycleDate,
+      p_batch_size: batchSize,
+    });
+    if (error) {
+      console.error('Error claiming nudge batch:', error);
+      throw new Error(`Failed to claim nudge batch: ${error.message}`);
+    }
+    return (data || []) as PairEvent[];
+  }
+
   async markNudgeSent(pairEventId: number): Promise<void> {
     const now = new Date().toISOString();
     const { error } = await this.client

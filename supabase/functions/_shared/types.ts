@@ -7,6 +7,7 @@ export interface UserPreference {
   snooze_until: string | null;
   department: string | null;
   full_name: string | null;
+  last_synced_at: string | null;
 }
 
 export interface PairEvent {

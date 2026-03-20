@@ -22,7 +22,6 @@ Deno.serve(async (req) => {
     settings.openaiApiKey,
     settings.glazeCrossDepartmentWeight,
     settings.glazeRepeatPenaltyDays,
-    settings.glazeDepartmentFieldId,
   );
 
   try {

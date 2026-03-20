@@ -78,6 +78,28 @@ export async function verifySlackSignature(
   return expectedSignature === requestSignature;
 }
 
+// ── Department Extraction ────────────────────────────────────────────────────
+
+export function extractDepartment(profile: any, departmentFieldId: string | null): string | null {
+  const fields = profile.fields || {};
+
+  if (departmentFieldId && fields[departmentFieldId]?.value) {
+    return fields[departmentFieldId].value;
+  }
+
+  if (profile.department) return profile.department;
+
+  for (const field of Object.values(fields)) {
+    const f = field as any;
+    const label = (f.label || '').toLowerCase();
+    if (label.includes('department') || label.includes('team')) {
+      return f.value || null;
+    }
+  }
+
+  return null;
+}
+
 // ── Response Helpers ─────────────────────────────────────────────────────────
 
 export function jsonResponse(data: unknown, status = 200): Response {

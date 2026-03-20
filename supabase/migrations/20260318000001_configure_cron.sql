@@ -30,6 +30,30 @@ SELECT cron.schedule(
   $$
 );
 
+-- Daily 5:00 UTC – Sync user profiles (first 1200 users, oldest-synced first)
+SELECT cron.schedule(
+  'glaze-sync-users-1',
+  '0 5 * * *',
+  $$
+    SELECT net.http_post(
+      url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/sync-users',
+      headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+    );
+  $$
+);
+
+-- Daily 5:05 UTC – Sync user profiles (next 1200 users)
+SELECT cron.schedule(
+  'glaze-sync-users-2',
+  '5 5 * * *',
+  $$
+    SELECT net.http_post(
+      url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/sync-users',
+      headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+    );
+  $$
+);
+
 -- ── Manage Jobs ──────────────────────────────────────────────────────────────
 
 -- View all scheduled jobs

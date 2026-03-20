@@ -98,6 +98,40 @@ export class Repository {
     return eligible;
   }
 
+  async listUsersForSync(limit: number): Promise<UserPreference[]> {
+    const { data, error } = await this.client
+      .from('glaze_user_preferences')
+      .select('*')
+      .order('last_synced_at', { ascending: true, nullsFirst: true })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error listing users for sync:', error);
+      throw new Error(`Failed to list users for sync: ${error.message}`);
+    }
+
+    return (data || []) as UserPreference[];
+  }
+
+  async registerNewMembers(userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+
+    const payload = userIds.map((id) => ({
+      slack_user_id: id,
+      is_active: true,
+      frequency: 'biweekly' as const,
+    }));
+
+    const { error } = await this.client
+      .from('glaze_user_preferences')
+      .upsert(payload, { onConflict: 'slack_user_id', ignoreDuplicates: true });
+
+    if (error) {
+      console.error('Error registering new members:', error);
+      throw new Error(`Failed to register new members: ${error.message}`);
+    }
+  }
+
   // ── Pair Events ──────────────────────────────────────────────────────────
 
   async recordPairEvent(

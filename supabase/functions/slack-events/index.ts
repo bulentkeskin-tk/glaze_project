@@ -265,7 +265,6 @@ Deno.serve(async (req) => {
           settings.openaiApiKey,
           settings.glazeCrossDepartmentWeight,
           settings.glazeRepeatPenaltyDays,
-          settings.glazeDepartmentFieldId,
         );
         const result = await scheduler.runCycle();
 

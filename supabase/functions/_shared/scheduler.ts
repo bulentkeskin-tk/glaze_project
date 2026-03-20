@@ -13,7 +13,6 @@ export class SchedulerService {
   private icebreakers: IcebreakerService;
   private crossDepartmentWeight: number;
   private repeatPenaltyDays: number;
-  private departmentFieldId: string | null;
 
   constructor(
     slackBotToken: string,
@@ -21,52 +20,12 @@ export class SchedulerService {
     openaiApiKey: string | undefined,
     crossDepartmentWeight: number,
     repeatPenaltyDays: number,
-    departmentFieldId: string | null = null,
   ) {
     this.client = new WebClient(slackBotToken);
     this.repository = repository;
     this.icebreakers = new IcebreakerService(openaiApiKey);
     this.crossDepartmentWeight = crossDepartmentWeight;
     this.repeatPenaltyDays = repeatPenaltyDays;
-    this.departmentFieldId = departmentFieldId;
-  }
-
-  // ── Sync channel members to database ─────────────────────────────────────
-
-  async syncChannelMembers(channelId: string): Promise<void> {
-    let cursor: string | undefined = undefined;
-
-    while (true) {
-      const response = await this.client.conversations.members({
-        channel: channelId,
-        cursor,
-        limit: 200,
-      });
-
-      if (!response.members) break;
-
-      for (const userId of response.members) {
-        // Get user profile (users.profile.get returns custom fields; users.info does not)
-        const userInfo = await this.client.users.info({ user: userId });
-        const user = userInfo.user;
-
-        if (!user || user.is_bot || user.deleted) continue;
-
-        const profileInfo = await this.client.users.profile.get({ user: userId });
-        const profile = (profileInfo.profile as any) || {};
-        const department = this.extractDepartment(profile);
-
-        await this.repository.upsertUserPreference(userId, {
-          is_active: true,
-          frequency: 'biweekly',
-          department,
-          full_name: profile.real_name || profile.display_name || userId,
-        });
-      }
-
-      cursor = response.response_metadata?.next_cursor;
-      if (!cursor) break;
-    }
   }
 
   // ── Run matching cycle ───────────────────────────────────────────────────
@@ -74,10 +33,11 @@ export class SchedulerService {
   async runCycle(): Promise<CycleResult> {
     const cycleDate = today();
 
-    const pairHistory = await this.repository.listRecentPairs();
+    const [pairHistory, allEligible] = await Promise.all([
+      this.repository.listRecentPairs(8),
+      this.repository.eligibleUsersForCycle(cycleDate),
+    ]);
     const matching = new MatchingService(pairHistory, this.crossDepartmentWeight, this.repeatPenaltyDays);
-
-    const allEligible = await this.repository.eligibleUsersForCycle(cycleDate);
     const { pairs, leftovers } = matching.makePairs(allEligible, cycleDate);
 
     const created: Array<{ channel: string; a: string; b: string }> = [];
@@ -170,25 +130,4 @@ export class SchedulerService {
     };
   }
 
-  // ── Extract department from Slack profile ────────────────────────────────
-
-  private extractDepartment(profile: any): string | null {
-    const fields = profile.fields || {};
-
-    if (this.departmentFieldId && fields[this.departmentFieldId]?.value) {
-      return fields[this.departmentFieldId].value;
-    }
-
-    if (profile.department) return profile.department;
-
-    for (const field of Object.values(fields)) {
-      const f = field as any;
-      const label = (f.label || '').toLowerCase();
-      if (label.includes('department') || label.includes('team')) {
-        return f.value || null;
-      }
-    }
-
-    return null;
-  }
 }

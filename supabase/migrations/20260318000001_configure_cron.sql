@@ -30,30 +30,28 @@ SELECT cron.schedule(
   $$
 );
 
--- Daily 5:00 UTC – Sync user profiles (first 1200 users, oldest-synced first)
-SELECT cron.schedule(
-  'glaze-sync-users-1',
-  '0 5 * * *',
-  $$
-    SELECT net.http_post(
-      url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/sync-users',
-      headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+-- Monday 5:00–5:21 UTC – Sync user profiles
+-- 22 staggered jobs, one per minute. Each processes ~95 users at ~100 req/min
+-- (5 concurrent calls, 3-second delay between batches — within Slack Tier 4 limit).
+-- Total weekly capacity: 22 × 95 = 2,090 users, rotating oldest-synced-first.
+DO $$
+DECLARE
+  i integer;
+BEGIN
+  FOR i IN 1..22 LOOP
+    PERFORM cron.schedule(
+      'glaze-sync-users-' || i,
+      (i - 1) || ' 5 * * 1',
+      $cmd$
+        SELECT net.http_post(
+          url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/sync-users',
+          headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+        );
+      $cmd$
     );
-  $$
-);
-
--- Daily 5:05 UTC – Sync user profiles (next 1200 users)
-SELECT cron.schedule(
-  'glaze-sync-users-2',
-  '5 5 * * *',
-  $$
-    SELECT net.http_post(
-      url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/sync-users',
-      headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
-    );
-  $$
-);
-
+  END LOOP;
+END;
+$$;
 -- ── Manage Jobs ──────────────────────────────────────────────────────────────
 
 -- View all scheduled jobs
@@ -65,3 +63,5 @@ SELECT cron.schedule(
 -- Remove a job (if needed)
 -- SELECT cron.unschedule('glaze-run-cycle');
 -- SELECT cron.unschedule('glaze-run-nudges');
+-- Remove all 22 sync jobs:
+-- DO $$ DECLARE i integer; BEGIN FOR i IN 1..22 LOOP PERFORM cron.unschedule('glaze-sync-users-' || i); END LOOP; END; $$;

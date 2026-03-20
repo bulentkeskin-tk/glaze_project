@@ -1,15 +1,16 @@
 // ── Sync Users Edge Function ─────────────────────────────────────────────────
-// Syncs Slack profiles for all channel members. Run daily via pg_cron.
-// Processes up to 1200 users per invocation ordered by last_synced_at ASC NULLS FIRST,
-// so running twice (5:00 and 5:05 UTC) covers up to 2400 users per day.
+// Syncs Slack profiles for all channel members. Run weekly via pg_cron.
+// 22 staggered jobs fire every Monday from 5:00–5:21 UTC, each processing ~95
+// users at 5 concurrent calls / 3-second delay (~100 req/min, Slack Tier 4 limit).
+// Total weekly capacity: 22 × 95 = 2,090 users.
 
 import { WebClient } from 'npm:@slack/web-api@7';
 import { Repository } from '../_shared/repository.ts';
 import { extractDepartment, getSettings, jsonResponse, textResponse } from '../_shared/utils.ts';
 
-const BATCH_SIZE = 20;    // concurrent Slack API calls per batch
-const BATCH_DELAY_MS = 1000; // 1 second between batches
-const SYNC_LIMIT = 1200;     // max users per invocation
+const BATCH_SIZE = 5;     // concurrent Slack API calls per batch
+const BATCH_DELAY_MS = 100;  // brief pause between batches; rate is governed by SYNC_LIMIT
+const SYNC_LIMIT = 95;       // max users per invocation — keeps calls/min under Slack Tier 4 limit (100/min)
 
 Deno.serve(async (req) => {
   const settings = getSettings();

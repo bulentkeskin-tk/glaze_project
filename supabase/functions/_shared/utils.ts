@@ -21,6 +21,7 @@ export function getSettings(): Settings {
     glazeCrossDepartmentWeight: parseInt(Deno.env.get('GLAZE_CROSS_DEPARTMENT_WEIGHT') || '20'),
     glazeRepeatPenaltyDays: parseInt(Deno.env.get('GLAZE_REPEAT_PENALTY_DAYS') || '3650'),
     glazeDepartmentFieldId: Deno.env.get('GLAZE_DEPARTMENT_FIELD_ID') || null,
+    verbose: Deno.env.get('VERBOSE') === '1',
   };
 }
 

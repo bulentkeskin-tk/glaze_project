@@ -119,12 +119,17 @@ export class SchedulerService {
   // have had no human messages since the intro. Safe to run concurrently —
   // DB claim is atomic (FOR UPDATE SKIP LOCKED).
 
-  async runNudges(batchSize = 50): Promise<NudgeResult> {
+  // Conversation activity thresholds
+  private static readonly BOOST_MESSAGE_MIN = 1;  // at least this many human msgs to consider a boost
+  private static readonly BOOST_MESSAGE_MAX = 3;  // conversation is self-sustaining above this
+
+  async runNudges(batchSize = 50, verbose = false): Promise<NudgeResult> {
     const currentDate = today();
     const targetCycle = addWeeks(parseDate(currentDate), -1).split('T')[0];
 
     const pairRows = await this.repository.claimNudgeBatch(targetCycle, batchSize);
     const nudged: string[] = [];
+    const boosted: string[] = [];
 
     for (const row of pairRows) {
       const history = await this.client.conversations.history({
@@ -139,25 +144,57 @@ export class SchedulerService {
           !m.subtype
       );
 
-      if (humanMessages.length > 0) {
-        // Already talking — mark as sent so it won't be reclaimed
+      const msgCount = humanMessages.length;
+
+      if (msgCount === 0) {
+        // Silent pair — send the standard nudge
+        await this.client.chat.postMessage({
+          channel: row.dm_channel_id,
+          text: '☕ Friendly nudge: looks like this chat has not started yet. Maybe pick a time before the week gets away from you?',
+        });
         await this.repository.markNudgeSent(row.id);
+        nudged.push(row.dm_channel_id);
         continue;
       }
 
-      await this.client.chat.postMessage({
-        channel: row.dm_channel_id,
-        text: '☕ Friendly nudge: looks like this chat has not started yet. Maybe pick a time before the week gets away from you?',
-      });
+      if (
+        verbose &&
+        msgCount >= SchedulerService.BOOST_MESSAGE_MIN &&
+        msgCount <= SchedulerService.BOOST_MESSAGE_MAX
+      ) {
+        // Fetch display names in parallel — fall back to Slack user ID if not found
+        const [prefA, prefB] = await Promise.all([
+          this.repository.getUserPreference(row.user_a),
+          this.repository.getUserPreference(row.user_b),
+        ]);
+        const nameMap = new Map([
+          [row.user_a, prefA?.full_name || row.user_a],
+          [row.user_b, prefB?.full_name || row.user_b],
+        ]);
 
+        // Conversation started but still quiet — let the LLM decide whether to chime in
+        const structuredMessages = (humanMessages as any[])
+          .filter((m) => m.text)
+          .map((m) => ({ name: nameMap.get(m.user) || m.user, text: m.text as string }));
+        const boost = await this.icebreakers.getConversationBoost(structuredMessages);
+        if (boost) {
+          await this.client.chat.postMessage({
+            channel: row.dm_channel_id,
+            text: boost,
+          });
+          boosted.push(row.dm_channel_id);
+        }
+      }
+
+      // Mark as handled (whether we boosted or left it alone)
       await this.repository.markNudgeSent(row.id);
-      nudged.push(row.dm_channel_id);
     }
 
     return {
       target_cycle: targetCycle,
       nudges_sent: nudged.length,
-      channels: nudged,
+      boosts_sent: boosted.length,
+      channels: [...nudged, ...boosted],
     };
   }
 

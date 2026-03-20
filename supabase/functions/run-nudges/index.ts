@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const result = await scheduler.runNudges(BATCH_SIZE);
+    const result = await scheduler.runNudges(BATCH_SIZE, settings.verbose);
     console.log('Nudges completed:', result);
     return jsonResponse(result);
   } catch (error) {

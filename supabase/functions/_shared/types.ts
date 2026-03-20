@@ -34,6 +34,7 @@ export interface Settings {
   glazeCrossDepartmentWeight: number;
   glazeRepeatPenaltyDays: number;
   glazeDepartmentFieldId: string | null;
+  verbose: boolean;
 }
 
 export interface MatchingResult {
@@ -71,6 +72,7 @@ export interface ProcessQueueResult {
 export interface NudgeResult {
   target_cycle: string;
   nudges_sent: number;
+  boosts_sent: number;
   channels: string[];
 }
 

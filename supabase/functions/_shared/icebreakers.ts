@@ -53,6 +53,7 @@ export class IcebreakerService {
       const data = await response.json();
       const text = data.choices?.[0]?.message?.content?.trim();
 
+      console.log(`[icebreakers] generated icebreaker: "${text || '(empty, using fallback)'}"`);
       return text || this.getRandomFallback();
     } catch (error) {
       console.error('Error generating icebreaker:', error);
@@ -70,6 +71,7 @@ export class IcebreakerService {
     if (!this.openaiApiKey) return null;
 
     const transcript = messages.map((m) => `${m.name}: ${m.text}`).join('\n');
+    console.log(`[icebreakers] boost input transcript:\n${transcript}`);
 
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -108,6 +110,7 @@ export class IcebreakerService {
       const data = await response.json();
       const text = data.choices?.[0]?.message?.content?.trim();
 
+      console.log(`[icebreakers] boost response: "${text || '(empty)'}"`);
       if (!text || text.toUpperCase() === 'NULL') return null;
       return text;
     } catch (error) {

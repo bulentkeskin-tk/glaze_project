@@ -30,8 +30,10 @@ Deno.serve(async (req) => {
   );
 
   try {
+    const t0 = Date.now();
     const result = await scheduler.runNudges(BATCH_SIZE, settings.verbose);
-    console.log('Nudges completed:', result);
+    const elapsed = Date.now() - t0;
+    console.log(`[run-nudges] done in ${elapsed}ms cycle=${result.target_cycle} nudged=${result.nudges_sent} boosted=${result.boosts_sent}`);
     return jsonResponse(result);
   } catch (error) {
     console.error('Error running nudges:', error);

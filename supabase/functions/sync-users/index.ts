@@ -33,8 +33,11 @@ Deno.serve(async (req) => {
 
     // Step 3: Process in parallel batches of BATCH_SIZE with 1-second delay between batches
     let synced = 0;
+    const totalBatches = Math.ceil(usersToSync.length / BATCH_SIZE);
     for (let i = 0; i < usersToSync.length; i += BATCH_SIZE) {
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
       const batch = usersToSync.slice(i, i + BATCH_SIZE);
+      console.log(`[sync-users] batch ${batchNum}/${totalBatches} (${batch.length} users)`);
 
       await Promise.all(batch.map(async (user) => {
         try {

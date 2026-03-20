@@ -98,6 +98,7 @@ export class SchedulerService {
         await this.repository.recordPairEvent(item.cycle_date, item.user_a, item.user_b, channel, intro.ts);
         await this.repository.markQueueItemDone(item.id, channel, intro.ts);
 
+        console.log(`[run-cycle] intro sent channel=${channel} users=${item.user_a}+${item.user_b} icebreaker="${icebreaker}"`);
         results.push({ channel, a: item.user_a, b: item.user_b });
       } catch (error) {
         console.error('Error processing pair:', item.user_a, item.user_b, error);
@@ -128,6 +129,7 @@ export class SchedulerService {
     const targetCycle = addWeeks(parseDate(currentDate), -1).split('T')[0];
 
     const pairRows = await this.repository.claimNudgeBatch(targetCycle, batchSize);
+    console.log(`[run-nudges] claimed ${pairRows.length} pairs for cycle ${targetCycle}`);
     const nudged: string[] = [];
     const boosted: string[] = [];
 
@@ -154,6 +156,7 @@ export class SchedulerService {
         });
         await this.repository.markNudgeSent(row.id);
         nudged.push(row.dm_channel_id);
+        console.log(`[run-nudges] nudged channel=${row.dm_channel_id} users=${row.user_a}+${row.user_b}`);
         continue;
       }
 
@@ -176,6 +179,7 @@ export class SchedulerService {
         const structuredMessages = (humanMessages as any[])
           .filter((m) => m.text)
           .map((m) => ({ name: nameMap.get(m.user) || m.user, text: m.text as string }));
+        console.log(`[run-nudges] boost check channel=${row.dm_channel_id} msgs=${msgCount}`);
         const boost = await this.icebreakers.getConversationBoost(structuredMessages);
         if (boost) {
           await this.client.chat.postMessage({
@@ -183,7 +187,12 @@ export class SchedulerService {
             text: boost,
           });
           boosted.push(row.dm_channel_id);
+          console.log(`[run-nudges] boost sent channel=${row.dm_channel_id}`);
+        } else {
+          console.log(`[run-nudges] boost skipped (LLM returned NULL) channel=${row.dm_channel_id}`);
         }
+      } else if (msgCount > SchedulerService.BOOST_MESSAGE_MAX) {
+        console.log(`[run-nudges] skipped (active) channel=${row.dm_channel_id} msgs=${msgCount}`);
       }
 
       // Mark as handled (whether we boosted or left it alone)

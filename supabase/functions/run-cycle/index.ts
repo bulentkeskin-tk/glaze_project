@@ -28,8 +28,10 @@ Deno.serve(async (req) => {
   );
 
   try {
+    const t0 = Date.now();
     const result = await scheduler.processQueue(BATCH_SIZE);
-    console.log('Process queue completed:', result);
+    const elapsed = Date.now() - t0;
+    console.log(`[run-cycle] done in ${elapsed}ms cycle=${result.cycle_date} processed=${result.pairs_processed} failed=${result.pairs_failed}`);
     return jsonResponse(result);
   } catch (error) {
     console.error('Error processing queue:', error);

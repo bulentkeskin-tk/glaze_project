@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
 
   try {
     const result = await scheduler.queueCycle();
-    console.log('Queue cycle completed:', result);
+    console.log(`[queue-cycle] cycle=${result.cycle_date} eligible=${result.eligible_users} pairs=${result.pairs_queued} leftovers=${result.leftovers.join(',')}`);
     return jsonResponse(result);
   } catch (error) {
     console.error('Error queuing cycle:', error);

@@ -1,7 +1,7 @@
 // ── Repository: Database Access Layer ───────────────────────────────────────
 
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import type { PairEvent, UserPreference } from './types.ts';
+import type { PairEvent, PairQueueItem, UserPreference } from './types.ts';
 import { addWeeks, parseDate, today } from './utils.ts';
 
 export class Repository {
@@ -130,6 +130,57 @@ export class Repository {
       console.error('Error registering new members:', error);
       throw new Error(`Failed to register new members: ${error.message}`);
     }
+  }
+
+  // ── Pair Queue ────────────────────────────────────────────────────────────
+
+  async createPairQueue(cycleDate: string, pairs: Array<[UserPreference, UserPreference]>): Promise<void> {
+    // Clear stuck items from any previous unfinished run before inserting fresh ones
+    await this.client
+      .from('glaze_pair_queue')
+      .delete()
+      .neq('cycle_date', cycleDate)
+      .in('status', ['pending', 'processing']);
+
+    if (pairs.length === 0) return;
+
+    const payload = pairs.map(([a, b]) => ({
+      cycle_date: cycleDate,
+      user_a: a.slack_user_id,
+      user_b: b.slack_user_id,
+      status: 'pending',
+    }));
+
+    const { error } = await this.client.from('glaze_pair_queue').insert(payload);
+    if (error) {
+      console.error('Error creating pair queue:', error);
+      throw new Error(`Failed to create pair queue: ${error.message}`);
+    }
+  }
+
+  async claimQueueBatch(batchSize: number): Promise<PairQueueItem[]> {
+    const { data, error } = await this.client.rpc('claim_pair_queue_batch', { p_batch_size: batchSize });
+    if (error) {
+      console.error('Error claiming queue batch:', error);
+      throw new Error(`Failed to claim queue batch: ${error.message}`);
+    }
+    return (data || []) as PairQueueItem[];
+  }
+
+  async markQueueItemDone(id: number, dmChannelId: string, introTs: string): Promise<void> {
+    const { error } = await this.client
+      .from('glaze_pair_queue')
+      .update({ status: 'done', dm_channel_id: dmChannelId, intro_ts: introTs, completed_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(`Failed to mark queue item done: ${error.message}`);
+  }
+
+  async markQueueItemFailed(id: number): Promise<void> {
+    const { error } = await this.client
+      .from('glaze_pair_queue')
+      .update({ status: 'failed', completed_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(`Failed to mark queue item failed: ${error.message}`);
   }
 
   // ── Pair Events ──────────────────────────────────────────────────────────

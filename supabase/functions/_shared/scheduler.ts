@@ -1,7 +1,7 @@
 // ── Scheduler Service: Cycle Runner & Nudge Logic ───────────────────────────
 
 import { WebClient } from 'npm:@slack/web-api@7';
-import type { CycleResult, NudgeResult, UserPreference } from './types.ts';
+import type { NudgeResult, ProcessQueueResult, QueueCycleResult, UserPreference } from './types.ts';
 import { addWeeks, parseDate, today } from './utils.ts';
 import { Repository } from './repository.ts';
 import { MatchingService } from './matching.ts';
@@ -28,61 +28,89 @@ export class SchedulerService {
     this.repeatPenaltyDays = repeatPenaltyDays;
   }
 
-  // ── Run matching cycle ───────────────────────────────────────────────────
+  // ── Queue matching cycle (coordinator) ──────────────────────────────────
+  // Runs the full matching algorithm across all eligible users and writes
+  // all pairs to glaze_pair_queue. Makes zero Slack API calls.
 
-  async runCycle(): Promise<CycleResult> {
+  async queueCycle(): Promise<QueueCycleResult> {
     const cycleDate = today();
 
     const [pairHistory, allEligible] = await Promise.all([
       this.repository.listRecentPairs(8),
       this.repository.eligibleUsersForCycle(cycleDate),
     ]);
+
     const matching = new MatchingService(pairHistory, this.crossDepartmentWeight, this.repeatPenaltyDays);
     const { pairs, leftovers } = matching.makePairs(allEligible, cycleDate);
 
-    const created: Array<{ channel: string; a: string; b: string }> = [];
-
-    for (const [a, b] of pairs) {
-      // Open DM with both users
-      const dm = await this.client.conversations.open({
-        users: [a.slack_user_id, b.slack_user_id].join(','),
-      });
-
-      const channel = dm.channel?.id;
-      if (!channel) {
-        console.error('Failed to open DM for pair:', a.slack_user_id, b.slack_user_id);
-        continue;
-      }
-
-      // Get icebreaker
-      const icebreaker = await this.icebreakers.getIcebreaker();
-
-      // Send intro message
-      const intro = await this.client.chat.postMessage({
-        channel,
-        text:
-          `👋 You two have been matched for this Glaze coffee chat.\n\n` +
-          `<@${a.slack_user_id}> + <@${b.slack_user_id}>\n\n` +
-          `*Icebreaker:* ${icebreaker}`,
-      });
-
-      if (!intro.ts) {
-        console.error('Failed to send intro message for pair:', a.slack_user_id, b.slack_user_id);
-        continue;
-      }
-
-      // Record in database
-      await this.repository.recordPairEvent(cycleDate, a.slack_user_id, b.slack_user_id, channel, intro.ts);
-
-      created.push({ channel, a: a.slack_user_id, b: b.slack_user_id });
-    }
+    await this.repository.createPairQueue(cycleDate, pairs);
 
     return {
       cycle_date: cycleDate,
       eligible_users: allEligible.length,
-      pairs_created: created.length,
+      pairs_queued: pairs.length,
       leftovers: leftovers.map((u) => u.slack_user_id),
-      pairs: created,
+    };
+  }
+
+  // ── Process queue batch (worker) ─────────────────────────────────────────
+  // Claims up to batchSize pending pairs from the queue and sends Slack
+  // messages for each. Safe to run concurrently — DB claim is atomic.
+
+  async processQueue(batchSize = 50): Promise<ProcessQueueResult> {
+    const items = await this.repository.claimQueueBatch(batchSize);
+    const cycleDate = items[0]?.cycle_date ?? today();
+    const results: Array<{ channel: string; a: string; b: string }> = [];
+    let failed = 0;
+
+    for (const item of items) {
+      try {
+        const dm = await this.client.conversations.open({
+          users: [item.user_a, item.user_b].join(','),
+        });
+
+        const channel = dm.channel?.id;
+        if (!channel) {
+          console.error('Failed to open DM for pair:', item.user_a, item.user_b);
+          await this.repository.markQueueItemFailed(item.id);
+          failed++;
+          continue;
+        }
+
+        const icebreaker = await this.icebreakers.getIcebreaker();
+
+        const intro = await this.client.chat.postMessage({
+          channel,
+          text:
+            `👋 You two have been matched for this Glaze coffee chat.\n\n` +
+            `<@${item.user_a}> + <@${item.user_b}>\n\n` +
+            `*Icebreaker:* ${icebreaker}`,
+        });
+
+        if (!intro.ts) {
+          console.error('Failed to send intro message for pair:', item.user_a, item.user_b);
+          await this.repository.markQueueItemFailed(item.id);
+          failed++;
+          continue;
+        }
+
+        // Record in pair_events so the Thursday nudge job can find this pair
+        await this.repository.recordPairEvent(item.cycle_date, item.user_a, item.user_b, channel, intro.ts);
+        await this.repository.markQueueItemDone(item.id, channel, intro.ts);
+
+        results.push({ channel, a: item.user_a, b: item.user_b });
+      } catch (error) {
+        console.error('Error processing pair:', item.user_a, item.user_b, error);
+        await this.repository.markQueueItemFailed(item.id);
+        failed++;
+      }
+    }
+
+    return {
+      cycle_date: cycleDate,
+      pairs_processed: results.length,
+      pairs_failed: failed,
+      pairs: results,
     };
   }
 

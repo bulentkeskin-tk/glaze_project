@@ -1,14 +1,11 @@
-// ── Run Cycle Edge Function ─────────────────────────────────────────────────
-// Worker job: claims up to BATCH_SIZE pending pairs from glaze_pair_queue and
-// sends Slack intro messages for each. Safe to run concurrently — the DB claim
-// is atomic (FOR UPDATE SKIP LOCKED), so each pair is processed exactly once.
-// 20 workers fire every Monday from 08:01–08:20 UTC.
+// ── Queue Cycle Edge Function ────────────────────────────────────────────────
+// Coordinator job: runs the matching algorithm across all eligible users and
+// writes all pairs to glaze_pair_queue. Makes zero Slack API calls.
+// Triggered by pg_cron at Monday 08:00 UTC, one minute before the workers.
 
 import { Repository } from '../_shared/repository.ts';
 import { SchedulerService } from '../_shared/scheduler.ts';
 import { getSettings, jsonResponse, textResponse } from '../_shared/utils.ts';
-
-const BATCH_SIZE = 50; // max pairs per worker — stays well within Slack Tier-3 limits
 
 Deno.serve(async (req) => {
   const settings = getSettings();
@@ -28,11 +25,11 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const result = await scheduler.processQueue(BATCH_SIZE);
-    console.log('Process queue completed:', result);
+    const result = await scheduler.queueCycle();
+    console.log('Queue cycle completed:', result);
     return jsonResponse(result);
   } catch (error) {
-    console.error('Error processing queue:', error);
+    console.error('Error queuing cycle:', error);
     return jsonResponse({ error: String(error) }, 500);
   }
 });

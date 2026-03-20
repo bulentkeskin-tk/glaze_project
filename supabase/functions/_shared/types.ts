@@ -41,16 +41,31 @@ export interface MatchingResult {
   leftovers: UserPreference[];
 }
 
-export interface CycleResult {
+export interface PairQueueItem {
+  id: number;
+  cycle_date: string;
+  user_a: string;
+  user_b: string;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  dm_channel_id: string | null;
+  intro_ts: string | null;
+  claimed_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface QueueCycleResult {
   cycle_date: string;
   eligible_users: number;
-  pairs_created: number;
+  pairs_queued: number;
   leftovers: string[];
-  pairs: Array<{
-    channel: string;
-    a: string;
-    b: string;
-  }>;
+}
+
+export interface ProcessQueueResult {
+  cycle_date: string;
+  pairs_processed: number;
+  pairs_failed: number;
+  pairs: Array<{ channel: string; a: string; b: string }>;
 }
 
 export interface NudgeResult {

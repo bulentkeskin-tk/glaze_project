@@ -36,6 +36,7 @@ CREATE TABLE glaze_pair_events (
     user_b text NOT NULL,
     dm_channel_id text NOT NULL,
     intro_ts text NOT NULL,
+    icebreaker text NULL,
     nudge_sent_at timestamptz NULL,
     nudge_claimed_at timestamptz NULL,
     created_at timestamptz NOT NULL DEFAULT now(),

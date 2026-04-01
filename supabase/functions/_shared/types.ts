@@ -24,6 +24,7 @@ export interface PairEvent {
   user_b: string;
   dm_channel_id: string;
   intro_ts: string;
+  icebreaker: string | null;
   nudge_sent_at: string | null;
   created_at: string;
 }

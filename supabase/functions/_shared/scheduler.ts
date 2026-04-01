@@ -70,11 +70,18 @@ export class SchedulerService {
       };
     }
 
+    // Generate batch of icebreakers for all claimed pairs at once
+    const icebreakers = await this.icebreakers.getBatchIcebreakers(items.length);
+    console.log(`[run-cycle] generated ${icebreakers.length} icebreakers for ${items.length} pairs`);
+
     const cycleDate = items[0].cycle_date;
     const results: Array<{ channel: string; a: string; b: string }> = [];
     let failed = 0;
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const icebreaker = icebreakers[i];
+      
       try {
         const dm = await this.client.conversations.open({
           users: [item.user_a, item.user_b].join(','),
@@ -88,8 +95,6 @@ export class SchedulerService {
           failed++;
           continue;
         }
-
-        const icebreaker = await this.icebreakers.getIcebreaker();
 
         const intro = await this.client.chat.postMessage({
           channel,
@@ -108,7 +113,7 @@ export class SchedulerService {
         }
 
         // Record in pair_events so the Thursday nudge job can find this pair
-        await this.repository.recordPairEvent(item.cycle_date, item.user_a, item.user_b, channel, intro.ts);
+        await this.repository.recordPairEvent(item.cycle_date, item.user_a, item.user_b, channel, intro.ts, icebreaker);
         await this.repository.markQueueItemDone(item.id, channel, intro.ts);
 
         console.log(`[run-cycle] intro sent channel=${channel} users=${item.user_a}+${item.user_b} icebreaker="${icebreaker}"`);

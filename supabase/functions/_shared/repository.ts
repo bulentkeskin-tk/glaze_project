@@ -265,6 +265,7 @@ export class Repository {
     userB: string,
     dmChannelId: string,
     introTs: string,
+    icebreaker: string,
   ): Promise<void> {
     const payload = {
       cycle_date: cycleDate,
@@ -272,6 +273,7 @@ export class Repository {
       user_b: userB,
       dm_channel_id: dmChannelId,
       intro_ts: introTs,
+      icebreaker: icebreaker,
       nudge_sent_at: null,
     };
 

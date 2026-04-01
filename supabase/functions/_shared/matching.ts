@@ -76,30 +76,28 @@ export class MatchingService {
     const leftovers: UserPreference[] = [];
 
     while (remaining.length >= 2) {
-      let bestPair: [UserPreference, UserPreference] | null = null;
+      // Simplified greedy: take first user and find their best match
+      const first = remaining[0];
+      let bestMatch: UserPreference | null = null;
       let bestScore: [number, number] | null = null;
 
-      // Find the best pair among all remaining combinations
-      for (let i = 0; i < remaining.length; i++) {
-        for (let j = i + 1; j < remaining.length; j++) {
-          const a = remaining[i];
-          const b = remaining[j];
-          const score = this.scorePair(a, b, today);
+      // Only check first user against all others (O(n) per iteration instead of O(n²))
+      for (let j = 1; j < remaining.length; j++) {
+        const candidate = remaining[j];
+        const score = this.scorePair(first, candidate, today);
 
-          if (!bestScore || this.compareScores(score, bestScore) > 0) {
-            bestPair = [a, b];
-            bestScore = score;
-          }
+        if (!bestScore || this.compareScores(score, bestScore) > 0) {
+          bestMatch = candidate;
+          bestScore = score;
         }
       }
 
-      if (!bestPair) break;
+      if (!bestMatch) break;
 
-      const [a, b] = bestPair;
-      pairs.push([a, b]);
+      pairs.push([first, bestMatch]);
 
-      // Remove the paired users from remaining
-      const pairedIds = new Set([a.slack_user_id, b.slack_user_id]);
+      // Remove both paired users
+      const pairedIds = new Set([first.slack_user_id, bestMatch.slack_user_id]);
       const newRemaining = remaining.filter((u) => !pairedIds.has(u.slack_user_id));
       remaining.length = 0;
       remaining.push(...newRemaining);

@@ -46,14 +46,50 @@ export class Repository {
   }
 
   async listPreferences(): Promise<UserPreference[]> {
-    const { data, error } = await this.client.rpc('get_active_users');
+    // Fetch all rows using pagination (1000 rows per page)
+    let allData: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
 
-    if (error) {
-      console.error('Error listing preferences:', error);
-      throw new Error(`Failed to list preferences: ${error.message}`);
+    while (true) {
+      const { data, error } = await this.client
+        .from('glaze_user_preferences')
+        .select('*')
+        .eq('is_bot', false)
+        .eq('deleted', false)
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.error('Error listing preferences:', error);
+        throw new Error(`Failed to list preferences: ${error.message}`);
+      }
+
+      if (!data || data.length === 0) break;
+      
+      allData = allData.concat(data);
+      
+      // If we got fewer rows than pageSize, we've reached the end
+      if (data.length < pageSize) break;
+      
+      from += pageSize;
     }
 
-    return (data || []) as UserPreference[];
+    // Apply status_text filtering in-memory (same logic as get_active_users)
+    const filtered = allData.filter((user) => {
+      if (!user.status_text) return true;
+      
+      const status = user.status_text.toLowerCase();
+      return !(
+        status.includes('vacation') ||
+        status.includes('out') ||
+        status.includes('ooo') ||
+        status.includes('leave') ||
+        status.includes('back') ||
+        status.includes('pto')
+      );
+    });
+
+    return filtered as UserPreference[];
   }
 
   async eligibleUsersForCycle(cycleDate: string, frequency?: string): Promise<UserPreference[]> {

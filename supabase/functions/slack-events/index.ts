@@ -27,32 +27,13 @@ async function getBotIconUrl(client: WebClient): Promise<string | undefined> {
 async function fetchUserProfile(
   client: WebClient,
   userId: string,
-  departmentFieldId: string | null,
 ): Promise<{ full_name: string | null; department: string | null }> {
   try {
-    const info = await client.users.profile.get({ user: userId });
-    const profile = (info.profile as any) || {};
-    const full_name = profile.real_name || profile.display_name || null;
-    const fields = profile.fields || {};
-
-    let department: string | null = null;
-    if (departmentFieldId && fields[departmentFieldId]?.value) {
-      department = fields[departmentFieldId].value;
-    } else {
-      // Fallback: check profile.department or any field with a matching label
-      department = profile.department || null;
-      if (!department) {
-        for (const field of Object.values(fields)) {
-          const f = field as any;
-          const label = (f.label || '').toLowerCase();
-          if (label.includes('department') || label.includes('team')) {
-            department = f.value || null;
-            break;
-          }
-        }
-      }
-    }
-
+    const info = await client.users.info({ user: userId });
+    const u = (info.user as any) || {};
+    const profile = u.profile || {};
+    const full_name = u.real_name || profile.real_name || profile.display_name || null;
+    const department = profile.title || null;
     return { full_name, department };
   } catch {
     return { full_name: null, department: null };
@@ -123,7 +104,7 @@ Deno.serve(async (req) => {
       let pref = await repository.getUserPreference(userId);
 
       if (!pref) {
-        const profile = await fetchUserProfile(client, userId, settings.glazeDepartmentFieldId);
+        const profile = await fetchUserProfile(client, userId);
         await repository.upsertUserPreference(userId, {
           is_active: true,
           frequency: 'biweekly',
@@ -220,7 +201,7 @@ Deno.serve(async (req) => {
 
   // /glaze-on
   if (body.command === '/glaze-on') {
-    const profile = await fetchUserProfile(client, body.user_id, settings.glazeDepartmentFieldId);
+    const profile = await fetchUserProfile(client, body.user_id);
     await repository.upsertUserPreference(body.user_id, { is_active: true, snooze_until: null, ...profile });
     const name = profile.full_name ?? body.user_id;
     console.log(`[glaze-on] ${name} opted in`);
@@ -310,7 +291,7 @@ Deno.serve(async (req) => {
         let added = 0, updated = 0, unchanged = 0;
 
         for (const pref of allPrefs) {
-          const profile = await fetchUserProfile(client, pref.slack_user_id, settings.glazeDepartmentFieldId);
+          const profile = await fetchUserProfile(client, pref.slack_user_id);
           const fields: Partial<typeof pref> = {};
           if (profile.full_name !== null) fields.full_name = profile.full_name;
           if (profile.department !== null) fields.department = profile.department;

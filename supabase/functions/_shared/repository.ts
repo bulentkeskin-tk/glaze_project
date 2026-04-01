@@ -46,7 +46,17 @@ export class Repository {
   }
 
   async listPreferences(): Promise<UserPreference[]> {
-    const { data, error } = await this.client.from('glaze_user_preferences').select('*');
+    const { data, error } = await this.client
+      .from('glaze_user_preferences')
+      .select('*')
+      .eq('is_bot', false)
+      .eq('deleted', false)
+      .not('status_text', 'ilike', '%vacation%')
+      .not('status_text', 'ilike', '%out%')
+      .not('status_text', 'ilike', '%OOO%')
+      .not('status_text', 'ilike', '%leave%')
+      .not('status_text', 'ilike', '%back%')
+      .not('status_text', 'ilike', '%pto%');
 
     if (error) {
       console.error('Error listing preferences:', error);
@@ -104,6 +114,7 @@ export class Repository {
       .select('*')
       .order('last_synced_at', { ascending: true, nullsFirst: true })
       .limit(limit);
+    // Note: intentionally does NOT filter is_bot/deleted so we can sync and update those fields
 
     if (error) {
       console.error('Error listing users for sync:', error);
@@ -111,6 +122,23 @@ export class Repository {
     }
 
     return (data || []) as UserPreference[];
+  }
+
+  async countUsersNeedingSync(withinDays = 7): Promise<number> {
+    const cutoff = new Date(Date.now() - withinDays * 24 * 60 * 60 * 1000).toISOString();
+    const { count, error } = await this.client
+      .from('glaze_user_preferences')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_bot', false)
+      .eq('deleted', false)
+      .or(`last_synced_at.is.null,last_synced_at.lt.${cutoff}`);
+
+    if (error) {
+      console.error('Error counting users needing sync:', error);
+      throw new Error(`Failed to count users needing sync: ${error.message}`);
+    }
+
+    return count ?? 0;
   }
 
   async registerNewMembers(userIds: string[]): Promise<void> {

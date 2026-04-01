@@ -3,10 +3,17 @@
 export interface UserPreference {
   slack_user_id: string;
   is_active: boolean;
+  is_bot: boolean;
+  deleted: boolean;
   frequency: 'weekly' | 'biweekly' | 'monthly';
   snooze_until: string | null;
-  department: string | null;
   full_name: string | null;
+  department: string | null;  // populated from profile.title
+  team_id: string | null;
+  tz: string | null;
+  is_restricted: boolean | null;
+  is_app_user: boolean | null;
+  status_text: string | null;
   last_synced_at: string | null;
 }
 
@@ -33,7 +40,6 @@ export interface Settings {
   glazeDefaultFrequency: string;
   glazeCrossDepartmentWeight: number;
   glazeRepeatPenaltyDays: number;
-  glazeDepartmentFieldId: string | null;
   verbose: boolean;
 }
 

@@ -49,6 +49,8 @@ CREATE TABLE glaze_pair_queue (
     user_b text NOT NULL,
     status text NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+    retry_count int NOT NULL DEFAULT 0,
+    error_message text NULL,
     dm_channel_id text NULL,
     intro_ts text NULL,
     claimed_at timestamptz NULL,
@@ -79,18 +81,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Get active users (filters out bots, deleted, and users on vacation)
+CREATE OR REPLACE FUNCTION get_active_users()
+RETURNS SETOF glaze_user_preferences AS $$
+    SELECT *
+    FROM glaze_user_preferences
+    WHERE is_bot = false
+      AND deleted = false
+      AND (
+        status_text IS NULL 
+        OR (
+          status_text NOT ILIKE '%vacation%'
+          AND status_text NOT ILIKE '%out%'
+          AND status_text NOT ILIKE '%ooo%'
+          AND status_text NOT ILIKE '%leave%'
+          AND status_text NOT ILIKE '%back%'
+          AND status_text NOT ILIKE '%pto%'
+        )
+      );
+$$ LANGUAGE SQL STABLE;
+
 -- Atomic claim function for pair queue batch processing
 -- Multiple worker invocations call this concurrently. FOR UPDATE SKIP LOCKED
 -- ensures each pair is claimed by exactly one worker.
 -- Items stuck in 'processing' for >5 minutes are reclaimed automatically.
+-- Items with retry_count >= 3 are excluded (permanently failed).
 CREATE OR REPLACE FUNCTION claim_pair_queue_batch(p_batch_size INT)
 RETURNS SETOF glaze_pair_queue AS $$
     UPDATE glaze_pair_queue
     SET status = 'processing', claimed_at = NOW()
     WHERE id IN (
         SELECT id FROM glaze_pair_queue
-        WHERE status = 'pending'
-           OR (status = 'processing' AND claimed_at < NOW() - INTERVAL '5 minutes')
+        WHERE retry_count < 3
+          AND (status = 'pending'
+               OR (status = 'processing' AND claimed_at < NOW() - INTERVAL '5 minutes'))
         ORDER BY id
         LIMIT p_batch_size
         FOR UPDATE SKIP LOCKED
@@ -158,71 +182,6 @@ CREATE POLICY "Service role has full access to pair queue"
 -- Uncomment the sections below after deploying your Edge Functions.
 -- ──────────────────────────────────────────────────────────────────────────────
 
--- ── Matching Cycle Jobs ───────────────────────────────────────────────────────
--- Monday 08:00 UTC – Coordinator: compute matches and fill the queue
-
-/*
-SELECT cron.schedule(
-    'glaze-queue-cycle',
-    '0 8 * * 1',
-    $$
-        SELECT net.http_post(
-            url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/queue-cycle',
-            headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
-        );
-    $$
-);
-*/
-
--- Monday 08:01–08:20 UTC – Workers: claim and send messages (20 workers)
--- Throughput: 20 workers × 50 pairs = 1,000 pairs per cycle
-
-/*
-DO $$
-DECLARE
-    i integer;
-BEGIN
-    FOR i IN 1..20 LOOP
-        PERFORM cron.schedule(
-            'glaze-run-cycle-' || i,
-            i || ' 8 * * 1',
-            $cmd$
-                SELECT net.http_post(
-                    url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/run-cycle',
-                    headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
-                );
-            $cmd$
-        );
-    END LOOP;
-END;
-$$;
-*/
-
--- ── Nudge Jobs ────────────────────────────────────────────────────────────────
--- Thursday 08:00–08:19 UTC – Send nudges to silent pairs (20 workers)
--- Each claims 50 pairs → 20 × 50 = 1,000 pairs/Thursday
-
-/*
-DO $$
-DECLARE
-    i integer;
-BEGIN
-    FOR i IN 1..20 LOOP
-        PERFORM cron.schedule(
-            'glaze-run-nudges-' || i,
-            (i - 1) || ' 8 * * 4',
-            $cmd$
-                SELECT net.http_post(
-                    url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/run-nudges',
-                    headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
-                );
-            $cmd$
-        );
-    END LOOP;
-END;
-$$;
-*/
-
 -- ── User Sync Jobs ────────────────────────────────────────────────────────────
 -- Monday 5:00–7:59 UTC – Orchestrate user profile sync (every 3 minutes)
 -- Fires every 3 minutes. Checks if any users are unsynced in the past 7 days;
@@ -243,6 +202,56 @@ SELECT cron.schedule(
 );
 */
 
+-- ── Matching Cycle Jobs ───────────────────────────────────────────────────────
+-- Monday 08:00 UTC – Coordinator: compute matches and fill the queue
+
+/*
+SELECT cron.schedule(
+    'glaze-queue-cycle',
+    '0 8 * * 1',
+    $$
+        SELECT net.http_post(
+            url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/queue-cycle',
+            headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+        );
+    $$
+);
+*/
+
+-- Monday 08:01–08:20 UTC – Workers: claim and send messages (20 invocations)
+-- Throughput: 20 workers × 50 pairs = 1,000 pairs per cycle
+
+/*
+SELECT cron.schedule(
+    'glaze-run-cycle',
+    '1-20 8 * * 1',
+    $$
+        SELECT net.http_post(
+            url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/run-cycle',
+            headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+        );
+    $$
+);
+*/
+
+-- ── Nudge Jobs ────────────────────────────────────────────────────────────────
+-- Thursday 08:00–08:19 UTC – Send nudges to silent pairs (20 invocations)
+-- Each claims 50 pairs → 20 × 50 = 1,000 pairs/Thursday
+
+/*
+SELECT cron.schedule(
+    'glaze-run-nudges',
+    '0-19 8 * * 4',
+    $$
+        SELECT net.http_post(
+            url     := 'https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/run-nudges',
+            headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY", "x-admin-token": "YOUR_ADMIN_TRIGGER_TOKEN"}'::jsonb
+        );
+    $$
+);
+*/
+
+
 -- ── Cron Management ───────────────────────────────────────────────────────────
 -- View all scheduled jobs:
 -- SELECT * FROM cron.job;
@@ -253,12 +262,5 @@ SELECT cron.schedule(
 -- Remove jobs (if needed):
 -- SELECT cron.unschedule('glaze-queue-cycle');
 -- SELECT cron.unschedule('glaze-sync-orchestrator');
--- DO $$
--- DECLARE i integer;
--- BEGIN
---     FOR i IN 1..20 LOOP
---         PERFORM cron.unschedule('glaze-run-cycle-' || i);
---         PERFORM cron.unschedule('glaze-run-nudges-' || i);
---     END LOOP;
--- END;
--- $$;
+-- SELECT cron.unschedule('glaze-run-cycle');
+-- SELECT cron.unschedule('glaze-run-nudges');

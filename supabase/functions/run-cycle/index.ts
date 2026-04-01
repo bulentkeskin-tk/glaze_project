@@ -31,7 +31,14 @@ Deno.serve(async (req) => {
     const t0 = Date.now();
     const result = await scheduler.processQueue(BATCH_SIZE);
     const elapsed = Date.now() - t0;
-    console.log(`[run-cycle] done in ${elapsed}ms cycle=${result.cycle_date} processed=${result.pairs_processed} failed=${result.pairs_failed}`);
+    
+    // Explicit logging for empty batch vs. actual processing
+    if (result.cycle_date === null) {
+      console.log(`[run-cycle] no pairs available (all processed or queue empty) elapsed=${elapsed}ms`);
+    } else {
+      console.log(`[run-cycle] done in ${elapsed}ms cycle=${result.cycle_date} processed=${result.pairs_processed} failed=${result.pairs_failed}`);
+    }
+    
     return jsonResponse(result);
   } catch (error) {
     console.error('Error processing queue:', error);

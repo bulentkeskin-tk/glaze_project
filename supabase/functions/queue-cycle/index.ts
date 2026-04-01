@@ -30,6 +30,7 @@ Deno.serve(async (req) => {
     return jsonResponse(result);
   } catch (error) {
     console.error('Error queuing cycle:', error);
-    return jsonResponse({ error: String(error) }, 500);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    return jsonResponse({ error: String(error), message: error instanceof Error ? error.message : String(error) }, 500);
   }
 });

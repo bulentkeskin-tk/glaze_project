@@ -54,6 +54,8 @@ export interface PairQueueItem {
   user_a: string;
   user_b: string;
   status: 'pending' | 'processing' | 'done' | 'failed';
+  retry_count: number;
+  error_message: string | null;
   dm_channel_id: string | null;
   intro_ts: string | null;
   claimed_at: string | null;
@@ -69,7 +71,7 @@ export interface QueueCycleResult {
 }
 
 export interface ProcessQueueResult {
-  cycle_date: string;
+  cycle_date: string | null;
   pairs_processed: number;
   pairs_failed: number;
   pairs: Array<{ channel: string; a: string; b: string }>;

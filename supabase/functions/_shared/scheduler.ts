@@ -59,7 +59,18 @@ export class SchedulerService {
 
   async processQueue(batchSize = 50): Promise<ProcessQueueResult> {
     const items = await this.repository.claimQueueBatch(batchSize);
-    const cycleDate = items[0]?.cycle_date ?? today();
+    
+    // Handle empty batch — return null cycle_date
+    if (items.length === 0) {
+      return {
+        cycle_date: null,
+        pairs_processed: 0,
+        pairs_failed: 0,
+        pairs: [],
+      };
+    }
+
+    const cycleDate = items[0].cycle_date;
     const results: Array<{ channel: string; a: string; b: string }> = [];
     let failed = 0;
 
@@ -71,8 +82,9 @@ export class SchedulerService {
 
         const channel = dm.channel?.id;
         if (!channel) {
-          console.error('Failed to open DM for pair:', item.user_a, item.user_b);
-          await this.repository.markQueueItemFailed(item.id);
+          const errMsg = 'Failed to open DM';
+          console.error(`${errMsg} for pair:`, item.user_a, item.user_b);
+          await this.repository.markQueueItemFailed(item.id, errMsg);
           failed++;
           continue;
         }
@@ -88,8 +100,9 @@ export class SchedulerService {
         });
 
         if (!intro.ts) {
-          console.error('Failed to send intro message for pair:', item.user_a, item.user_b);
-          await this.repository.markQueueItemFailed(item.id);
+          const errMsg = 'Failed to send intro message';
+          console.error(`${errMsg} for pair:`, item.user_a, item.user_b);
+          await this.repository.markQueueItemFailed(item.id, errMsg);
           failed++;
           continue;
         }
@@ -101,8 +114,9 @@ export class SchedulerService {
         console.log(`[run-cycle] intro sent channel=${channel} users=${item.user_a}+${item.user_b} icebreaker="${icebreaker}"`);
         results.push({ channel, a: item.user_a, b: item.user_b });
       } catch (error) {
+        const errMsg = String(error);
         console.error('Error processing pair:', item.user_a, item.user_b, error);
-        await this.repository.markQueueItemFailed(item.id);
+        await this.repository.markQueueItemFailed(item.id, errMsg);
         failed++;
       }
     }

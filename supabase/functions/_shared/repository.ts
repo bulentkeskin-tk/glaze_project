@@ -46,17 +46,7 @@ export class Repository {
   }
 
   async listPreferences(): Promise<UserPreference[]> {
-    const { data, error } = await this.client
-      .from('glaze_user_preferences')
-      .select('*')
-      .eq('is_bot', false)
-      .eq('deleted', false)
-      .not('status_text', 'ilike', '%vacation%')
-      .not('status_text', 'ilike', '%out%')
-      .not('status_text', 'ilike', '%OOO%')
-      .not('status_text', 'ilike', '%leave%')
-      .not('status_text', 'ilike', '%back%')
-      .not('status_text', 'ilike', '%pto%');
+    const { data, error } = await this.client.rpc('get_active_users');
 
     if (error) {
       console.error('Error listing preferences:', error);
@@ -203,11 +193,31 @@ export class Repository {
     if (error) throw new Error(`Failed to mark queue item done: ${error.message}`);
   }
 
-  async markQueueItemFailed(id: number): Promise<void> {
+  async markQueueItemFailed(id: number, errorMessage?: string): Promise<void> {
+    // Increment retry_count; mark as failed only after max retries
+    const { data: current, error: fetchError } = await this.client
+      .from('glaze_pair_queue')
+      .select('retry_count')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw new Error(`Failed to fetch queue item: ${fetchError.message}`);
+
+    const newRetryCount = (current?.retry_count ?? 0) + 1;
+    const maxRetries = 3;
+    const status = newRetryCount >= maxRetries ? 'failed' : 'pending';
+    const completedAt = newRetryCount >= maxRetries ? new Date().toISOString() : null;
+
     const { error } = await this.client
       .from('glaze_pair_queue')
-      .update({ status: 'failed', completed_at: new Date().toISOString() })
+      .update({
+        status,
+        retry_count: newRetryCount,
+        error_message: errorMessage || null,
+        completed_at: completedAt,
+      })
       .eq('id', id);
+
     if (error) throw new Error(`Failed to mark queue item failed: ${error.message}`);
   }
 

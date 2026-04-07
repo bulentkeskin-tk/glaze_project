@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.window"],
+    "strict": true
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"],
+      "exclude": ["no-unused-vars"]
+    }
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 120,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": true,
+    "proseWrap": "preserve"
+  },
+  "tasks": {
+    "start": "supabase start",
+    "stop": "supabase stop",
+    "serve": "supabase functions serve --no-verify-jwt",
+    "deploy": "supabase functions deploy",
+    "test": "deno test --allow-all"
+  }
+}

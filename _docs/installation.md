@@ -8,35 +8,68 @@ Before starting, make sure you have:
 
 - A Slack workspace where you have admin permissions
 - A Supabase account (free tier works fine)
-- Python 3.11 or newer installed on your computer
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed
+- [Deno](https://deno.com) installed (optional, only for local development)
 - An OpenAI API key (optional, but recommended for AI-generated icebreakers)
-- About 30 minutes
+- About 20 minutes
 
-## Step 1: Set Up Your Supabase Database
+## Step 1: Set Up Your Supabase Project
 
-Supabase is a free Postgres database that will store your user preferences and match history.
+Supabase will host your database and Edge Functions (serverless backend).
 
 1. Go to [supabase.com](https://supabase.com) and sign up or log in
 2. Click **"New Project"**
 3. Choose an organization and give your project a name (e.g., "glaze-dev")
 4. Set a strong database password and pick a region close to you
-5. Wait 2-3 minutes for Supabase to provision your database
+5. Wait 2-3 minutes for Supabase to provision your project
+6. Once ready, note your **Project Reference ID** from the URL (e.g., `https://supabase.com/dashboard/project/abcdefghijk` → the ID is `abcdefghijk`)
 
-### Create the Database Tables
+### Install Supabase CLI
 
-6. In your Supabase dashboard, click **"SQL Editor"** in the left sidebar
-7. Click **"New Query"**
-8. Open the file `supabase/schema.sql` from this repository and copy all its contents
-9. Paste the SQL into the Supabase query editor
-10. Click **"Run"** to create your tables
+If you haven't already installed the Supabase CLI:
+
+```bash
+# macOS/Linux
+brew install supabase/tap/supabase
+
+# Windows (using Scoop)
+scoop install supabase
+
+# Or download from: https://github.com/supabase/cli/releases
+```
+
+### Link Your Project
+
+7. Open your terminal in the `glaze_project` directory
+8. Link to your Supabase project:
+
+```bash
+supabase link --project-ref YOUR_PROJECT_REF
+```
+
+(Replace `YOUR_PROJECT_REF` with the ID you noted in step 6
+6. In the file, **replace** every instance of `YOUR_PROJECT_REF` with your actual Supabase project reference
+7. Copy the updated YAML content
+8. Paste it into Slack (replacing all the YAML there)
+
+## Step 2: Create the Database Tables
+
+9. Run the database migrations:
+
+```bash
+supabase db push
+```
+
+This creates all necessary tables (`glaze_user_preferences`, `glaze_pair_events`) and enables pg_cron for scheduled jobs.
 
 ### Save Your Supabase Credentials
 
-11. Click **"Project Settings"** (gear icon in the left sidebar)
-12. Navigate to **"API"** in the settings menu
-13. Copy and save these two values somewhere safe:
+10. In the Supabase dashboard, click **"Project Settings"** (gear icon)
+11. Navigate to **"API"** in the settings menu
+12. Copy and save these values:
     - **URL** (like `https://xxxxx.supabase.co`)
-    - **service_role key** (under "Project API keys" - this is the secret one, not the anon key)
+    - **anon public** key (you'll need this for pg_cron later)
+    - **service_role key** (secret key - keep this secure)
 
 ## Step 2: Create Your Slack App
 
@@ -62,130 +95,101 @@ Now let's create the Slack app that will power Glaze.
 12. In the left sidebar, click **"OAuth & Permissions"**
 13. Copy the **Bot User OAuth Token** (starts with `xoxb-`) - save this
 
-## Step 3: Set Up Your Local Environment
+## Step 3: Configure Edge Function Secrets
 
-Open your terminal and navigate to where you want to work on this project.
-
-```bash
-# Clone or navigate to your project directory
-cd glaze_project
-
-# Create a Python virtual environment
-python -m venv .venv
-
-# Activate it (Windows)
-.venv\Scripts\activate
-
-# Or activate it (Mac/Linux)
-# source .venv/bin/activate
-
-# Install all dependencies
-pip install -r requirements.txt
-```
-
-## Step 4: Configure Your Environment Variables
-
-1. Create a copy of the environment template:
-
-```bash
-# Windows
-copy .env.example .env
-
-# Mac/Linux
-# cp .env.example .env
-```
-
-2. Open the `.env` file in your text editor and fill in these required values:
-
-```env
-# From Step 2 (Slack)
-SLACK_BOT_TOKEN=xoxb-your-token-here
-SLACK_SIGNING_SECRET=your-signing-secret-here
-
-# From Step 1 (Supabase)
-SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
-
-# Optional but recommended (OpenAI for AI icebreakers)
-OPENAI_API_KEY=sk-your-openai-key-here
-
-# You'll set this in the next step
-GLAZE_DEFAULT_CHANNEL_ID=
-```
+Edge Functions need access to your Slack and OpenAI credentials. We'll store these as Supabase secrets.
 
 ### Get Your Channel ID
 
-3. In Slack, create a test channel or use an existing one (e.g., `#glaze-test`)
-4. Right-click the channel name and select **"Copy link"**
-5. The URL looks like: `https://yourworkspace.slack.com/archives/C01234ABCDE`
-6. The last part (`C01234ABCDE`) is your channel ID
-7. Paste this into your `.env` file as `GLAZE_DEFAULT_CHANNEL_ID`
+First, you need your Slack channel ID:
 
-### Set an Admin Token
+1. In Slack, create or navigate to your test channel (e.g., `#glaze`)
+2. Right-click the channel name and select **"Copy link"**
+3. The URL looks like: `https://travelperk.slack.com/archives/C0AMVRJMUU9`
+4. The last part (`C0AMVRJMUU9`) is your channel ID - save this
 
-8. In your `.env` file, change `ADMIN_TRIGGER_TOKEN` to something secure:
+### Set All Secrets
 
-```env
-ADMIN_TRIGGER_TOKEN=some-random-secret-token-12345
-```
-
-This protects your admin endpoints from unauthorized access.
-
-## Step 5: Expose Your Local Server to Slack
-
-Slack needs to send events to your app, but your computer isn't accessible from the internet. We'll use a tunnel to expose your local server.
-
-### Option A: Using ngrok (Recommended)
-
-1. Download ngrok from [ngrok.com](https://ngrok.com)
-2. In a **new terminal window**, run:
+Now set all the secrets at once:
 
 ```bash
-ngrok http 3000
+# Generate a secure random token for admin endpoints
+ADMIN_TOKEN=$(openssl rand -hex 32)
+
+# Set all secrets (replace the values with your actual credentials)
+supabase secrets set \
+  SLACK_BOT_TOKEN="xoxb-your-token-here" \
+  SLACK_SIGNING_SECRET="your-signing-secret-here" \
+  GLAZE_DEFAULT_CHANNEL_ID="C1234567890" \
+  ADMIN_TRIGGER_TOKEN="$ADMIN_TOKEN"
+
+# Optional: Add OpenAI for AI-generated icebreakers
+supabase secrets set OPENAI_API_KEY="sk-your-key-here"
 ```
 
-3. You'll see a URL like `https://abc123.ngrok-free.app` - copy this
+**Important:** Save the `ADMIN_TRIGGER_TOKEN` value - you'll need it in Step 5.
 
-### Option B: Using Cloudflare Tunnel
-
-1. Install Cloudflare Tunnel following their docs
-2. Run: `cloudflare tunnel --url localhost:3000`
-3. Copy the public URL provided
-
-### Update Your Slack App URLs
-
-4. Go back to [api.slack.com/apps](https://api.slack.com/apps) and select your app
-5. In the left sidebar, click **"Event Subscriptions"**
-6. Turn on **"Enable Events"**
-7. In **Request URL**, enter: `https://your-ngrok-url.com/slack/events`
-8. Wait for the green "Verified" checkmark
-9. Click **"Save Changes"** at the bottom
-
-10. In the left sidebar, click **"Interactivity & Shortcuts"**
-11. Turn on **Interactivity**
-12. In **Request URL**, enter: `https://your-ngrok-url.com/slack/interactivity`
-13. Click **"Save Changes"**
-
-14. In the left sidebar, click **"Slash Commands"**
-15. For EACH command (`/glaze-off`, `/glaze-on`, etc.), click to edit it
-16. Set **Request URL** to: `https://your-ngrok-url.com/slack/commands`
-17. Click **"Save"**
-
-## Step 6: Run Your App
-
-You're ready! In your project terminal (with the virtual environment activated):
+You can verify secrets were set:
 
 ```bash
-uvicorn app:app --reload --port 3000
+supabase secrets list
 ```
 
-You should see:
+## Step 4: Deploy Edge Functions
+
+Deploy all Edge Functions to Supabase:
+
+```bash
+supabase functions deploy slack-events
+supabase functions deploy run-cycle
+supabase functions deploy run-nudges
+supabase functions deploy about --no-verify-jwt
 ```
-INFO:     Uvicorn running on http://127.0.0.1:3000
-INFO:     Application startup complete.
+
+You should see success messages for each deployment. Your functions are now live!
+
+## Step 5: Configure Scheduled Jobs
+
+Set up pg_cron to automatically run matching cycles every Monday and send nudges every Thursday.
+
+1. In the Supabase dashboard, go to **SQL Editor**
+2. Click **"New Query"**
+3. Open `supabase/migrations/20260318000001_configure_cron.sql` from the project
+4. In the SQL, replace these placeholders:
+   - `YOUR_PROJECT_REF` → your Supabase project reference
+   - `YOUR_SUPABASE_ANON_KEY` → your anon key from Step 1
+   - `YOUR_ADMIN_TRIGGER_TOKEN` → the token generated in Step 3
+5. Paste the updated SQL into Supabase and click **"Run"**
+
+You can verify the jobs were created:
+
+```sql
+SELECT * FROM cron.job;
 ```
+
+You should see two jobs: `glaze-run-cycle` and `glaze-run-nudges`.
 
 ## Step 7: Test Everything Works
+
+### Invite the Bot to Your Channel
+
+1. In Slack, go to your test channel
+2. Type `/invite @Glaze` and press Enter
+3. The bot should join the channel
+
+### Open the Home Tab
+
+4. In Slack's left sidebar, find **"Apps"** and click **Glaze**
+5. You should see a home tab with your preferences (Status: Active, Frequency: Biweekly)
+6. Try changing your frequency using the dropdown - it should update immediately
+
+### Test Slash Commands
+
+7. In any channel, type `/glaze-off` and press Enter
+8. You should get a confirmation message
+9. Check the home tab - your status should now be "Paused"
+10. Type `/glaze-on` to re-activate
+6: Test Everything Works
 
 ### Invite the Bot to Your Channel
 
@@ -208,78 +212,112 @@ INFO:     Application startup complete.
 
 ### Run Your First Matching Cycle (Manual Test)
 
-11. Make sure you have at least **2 people** in your test channel
+11. Make sure you have at least **2 people** in your test channel who are opted in
 12. In your test channel, type `/glaze-run-now` and press Enter
 13. The bot should create a group DM between pairs of users with an icebreaker question
 
 **Important:** If you have an odd number of people, one person will be left unmatched. That's expected behavior.
 
-### Check Thursday Nudges (Optional)
+### Check Admin Stats (Workspace Admins Only)
 
-To test nudges without waiting until Thursday:
+14. In Slack, open the **Glaze** app home tab
+15. If you are a workspace admin or owner, you will see an **Admin Stats** section at the bottom showing user counts and total pairs created
 
-1. In your terminal, stop the app (Ctrl+C)
-2. Edit `glaze/services/scheduler.py` and temporarily change line 93 from:
-   ```python
-   target_cycle = today - timedelta(days=3)
-   ```
-   to:
-   ```python
-   target_cycle = today
-   ```
-3. Restart the app: `uvicorn app:app --reload --port 3000`
-4. Run a cycle with `/glaze-run-now`
-5. Don't respond in the group DM
-6. Call the nudge endpoint:
-   ```bash
-   curl -X POST http://localhost:3000/tasks/run-nudges \
-     -H "X-Admin-Token: your-admin-token-here"
-   ```
-7. You should receive a nudge in the silent DM
+### Test Scheduled Jobs (Optional)
 
-## Step 8: What's Next?
+To manually trigger the scheduled endpoints:
 
-### For Production Deployment
+```bash
+# Test the Monday cycle
+curl -X POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/run-cycle \
+  -H "x-admin-token: YOUR_ADMIN_TRIGGER_TOKEN"
 
-Once you're happy with testing locally, you'll want to:
-
-1. **Deploy to a server**: Use AWS Lambda, Vercel, or any ASGI host (see README.md)
-2. **Set up scheduled jobs**: Configure AWS EventBridge or Vercel Cron to call:
-   - `/tasks/run-cycle` every Monday at 10 AM
-   - `/tasks/run-nudges` every Thursday at 10 AM
-3. **Update Slack URLs**: Point your Slack app to your production URL instead of ngrok
-4. **Secure your secrets**: Use AWS Secrets Manager or similar instead of `.env` files
-
-### Customization Options
-
-You can customize behavior by editing `.env`:
-
-- `GLAZE_DEFAULT_FREQUENCY` - Default matching cadence (weekly/biweekly/monthly)
-- `GLAZE_CROSS_DEPARTMENT_WEIGHT` - Bonus score for cross-department matches (default: 20)
+# Test Thursday nudges
+curl -X POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/run-nudges \
+  -H "x-admin-token: YOUR_ADMIN_TRIGGER_TOKEN"
+```e for cross-department matches (default: 20)
 - `GLAZE_REPEAT_PENALTY_DAYS` - How strongly to avoid repeat pairings (default: 3650)
 
 ## Troubleshooting
 
-**"URL verification failed"** when setting up Event Subscriptions:
-- Make sure your app is running (`uvicorn app:app --reload --port 3000`)
-- Make sure ngrok is running and hasn't expired
-- Double-check the URL ends with `/slack/events`
+**"URL v7: Monitor and Maintain
 
-**Bot doesn't respond to commands:**
-- Check your terminal for errors
-- Verify `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` are correct in `.env`
+### View Logs
+
+Check Edge Function logs in real-time:
+
+```bash
+supabase functions logs slack-events --follow
+```
+
+Or view logs in the Supabase dashboard: **Edge Functions** → Select function → **Logs**
+
+### Monitor Scheduled Jobs
+
+Check pg_cron job history:
+
+```sql
+SELECT * FROM cron.job_run_details 
+ORDER BY start_time DESC 
+LIMIT 20;
+```
+
+### Update Secrets
+Slack says "URL verification failed" or commands don't work:**
+- Check that you updated `YOUR_PROJECT_REF` in `slack_manifest.yaml`
+- Verify Edge Functions are deployed: `supabase functions list`
+- View function logs: `supabase functions logs slack-events`
+- Ensure secrets are set: `supabase secrets list`
+in production on Supabase! Team members in your channel will be automatically enrolled, and matching cycles will run every Monday at 08:00 UTC with Thursday nudges.
+
+### What Happens Next
+
+- **Monday 08:00 UTC**: Automatic matching cycle creates pairs
+- **Thursday 08:00 UTC**: Nudges sent to silent pairs from Monday
+- **Users can**: Adjust frequency, snooze, or opt out anytime via slash commands or home tab
+
+### Optional: Local Development
+
+If you want to develop locally:
+
+1. Install Deno: https://deno.com
+2. Start local Supabase: `supabase start`
+3. Serve functions: `supabase functions serve --no-verify-jwt`
+4. Use ngrok to expose locally: `ngrok http 54321`
+5. Update Slack URLs temporarily to ngrok URL
+
+See [README.md](../README.md) for full local development instructions
+- Check Edge Function logs for errors
 - Make sure you invited the bot to the channel
+- Try redeploying: `supabase functions deploy slack-events`
 
-**"No matching engine" or database errors:**
-- Verify your Supabase credentials in `.env`
-- Check that you ran the `schema.sql` script successfully in Supabase
-- Look at the Supabase logs in the dashboard
+**Database errors:**
+- Verify migrations ran successfully: `supabase db diff`
+- Check Supabase dashboard → **Database** → **Tables** for `glaze_user_preferences` and `glaze_pair_events`
+- View database logs in Supabase dashboard
+
+**Scheduled jobs not running:**
+- Verify pg_cron is configured: `SELECT * FROM cron.job;`
+- Check job execution history: `SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 5;`
+- Ensure `ADMIN_TRIGGER_TOKEN` matches in both secrets and cron SQL
 
 **AI icebreakers aren't working:**
-- Verify your `OPENAI_API_KEY` is correct
+- Verify `OPENAI_API_KEY` is set correctly
 - Check your OpenAI account has available credits
 - The app will fall back to curated icebreakers if OpenAI fails
+- View logs to see the actual error
 
+**Need help?**
+- Check [README.md](../README.md) for full documentation
+- Review [ARCHITECTURE.md](../ARCHITECTURE.md) for technical details
+- View function logs for detailed error messages
+
+# Change repeat penalty (days)
+supabase secrets set GLAZE_REPEAT_PENALTY_DAYS="5000"
+
+# Redeploy after changing settings
+supabase functions deploy
+```
 **Need help?**
 Check the main README.md for architecture details, or review the code comments in the services folder.
 

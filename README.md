@@ -1,6 +1,6 @@
 # Glaze
 
-Glaze is a lightweight Slack app that creates recurring 1-on-1 coffee chat matches, similar to Donut, with a low-cost Python stack.
+Glaze is a lightweight Slack app that creates recurring 1-on-1 coffee chat matches, similar to Donut, built with TypeScript, Deno, and Supabase Edge Functions.
 
 ## Features
 
@@ -14,87 +14,179 @@ Glaze is a lightweight Slack app that creates recurring 1-on-1 coffee chat match
 - AI-generated icebreakers
 - Thursday nudge when a pair has not started talking yet
 - No message content stored in the database
+- Admin stats tab in Slack home (workspace admins only)
 
 ## Stack
 
-- Python 3.11+
-- FastAPI
-- Slack Bolt for Python
-- Supabase (Postgres)
-- OpenAI optional for icebreakers
-- Deployable to AWS Lambda via Mangum, or any ASGI host
+- TypeScript + Deno runtime
+- Supabase Edge Functions (serverless)
+- Supabase (Postgres database)
+- Slack Web API (@slack/web-api)
+- OpenAI API (optional for icebreakers)
+- pg_cron for scheduled jobs
 
 ## Project layout
 
-- `app.py` - ASGI entry point
-- `glaze/settings.py` - environment loading
-- `glaze/slack_app.py` - Slack Bolt app wiring
-- `glaze/routes/handlers.py` - commands, events, and actions
-- `glaze/services/matching.py` - pairing algorithm
-- `glaze/services/icebreakers.py` - AI and fallback icebreakers
-- `glaze/services/scheduler.py` - cycle runner and nudge runner
-- `glaze/db/repository.py` - database access
-- `supabase/schema.sql` - database schema
+- `supabase/functions/` - Edge Functions (serverless endpoints)
+  - `slack-events/` - handles Slack events, commands, and interactions
+  - `run-cycle/` - Monday matching job (triggered by pg_cron)
+  - `run-nudges/` - Thursday nudge job (triggered by pg_cron)
+  - `about/` - public info endpoint
+  - `_shared/` - shared TypeScript modules
+    - `types.ts` - TypeScript interfaces
+    - `utils.ts` - utilities and settings
+    - `repository.ts` - database access layer
+    - `matching.ts` - pairing algorithm
+    - `icebreakers.ts` - AI and fallback icebreakers
+    - `scheduler.ts` - cycle runner and nudge logic
+    - `home-tab.ts` - Slack home tab UI builder
+- `supabase/migrations/` - database migrations
 - `manifest/slack_manifest.yaml` - Slack app manifest
-
-## Architecture
-
-```mermaid
-graph LR
-    USERS["👤 Slack Users"] -->|"commands & events"| API["🐍 Glaze API<br>(FastAPI)"]
-    API -->|"DMs & messages"| USERS
-    API -->|"read / write"| DB["🗄 Supabase<br>(Postgres)"]
-    API -->|"icebreakers"| AI["🤖 OpenAI<br>(optional)"]
-    DB -->|"pg_cron<br>Mon & Thu 08:00 UTC"| API
-    ADMIN["🖥 Admin<br>Dashboard"] -->|"login + view data"| API
-```
+- `deno.json` - Deno configuration
 
 ## Environment variables
 
-Copy `.env.example` to `.env`.
+These are configured as Supabase Edge Function secrets. See setup steps below.
 
 Required:
 
-- `SLACK_BOT_TOKEN`
-- `SLACK_SIGNING_SECRET`
-- `SLACK_APP_TOKEN` (only needed if you later use Socket Mode; not used by default here)
-- `GLAZE_DEFAULT_CHANNEL_ID`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY` (optional)
+- `SLACK_BOT_TOKEN` - Slack bot token (starts with `xoxb-`)
+- `SLACK_SIGNING_SECRET` - Slack signing secret for request verification
+- `GLAZE_DEFAULT_CHANNEL_ID` - Default Slack channel ID to sync members from
+- `SUPABASE_URL` - Supabase project URL (auto-provided)
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (auto-provided)
+- `ADMIN_TRIGGER_TOKEN` - Secret token for scheduled job endpoints
 
 Optional:
 
-- `APP_BASE_URL` - public base URL for Slack requests
-- `GLAZE_DEFAULT_FREQUENCY` - default `biweekly`
-- `GLAZE_MATCH_HOUR_UTC` - default `17` for Monday 10am PT in standard time; better to use platform scheduler in your local TZ
-- `GLAZE_CROSS_DEPARTMENT_WEIGHT` - default `20`
-- `GLAZE_REPEAT_PENALTY_DAYS` - default `3650`
+- `OPENAI_API_KEY` - OpenAI API key for AI-generated icebreakers (falls back to hardcoded list)
+- `GLAZE_DEFAULT_FREQUENCY` - default `biweekly` (weekly|biweekly|monthly)
+- `GLAZE_CROSS_DEPARTMENT_WEIGHT` - default `20` (bonus points for cross-department pairs)
+- `GLAZE_REPEAT_PENALTY_DAYS` - default `3650` (penalty for repeat pairings)
+
+## Prerequisites
+
+- [Deno](https://deno.com/) installed locally
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed
+- A Supabase project (create at [supabase.com](https://supabase.com))
+- A Slack workspace with admin permissions
 
 ## Local development
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app:app --reload --port 3000
-```
+1. **Install Supabase CLI** (if not already installed):
+   ```bash
+   # macOS/Linux
+   brew install supabase/tap/supabase
+   
+   # Windows
+   scoop install supabase
+   ```
 
-Expose your local app to Slack using ngrok or Cloudflare Tunnel and set Slack request URLs to:
+2. **Initialize Supabase** (if starting fresh):
+   ```bash
+   supabase init
+   ```
 
-- Events: `https://YOUR-URL/slack/events`
-- Slash commands: `https://YOUR-URL/slack/commands`
-- Interactivity: `https://YOUR-URL/slack/interactivity`
+3. **Link to your Supabase project**:
+   ```bash
+   supabase link --project-ref YOUR_PROJECT_REF
+   ```
+
+4. **Set up environment variables**:
+   Create `.env` file in the `supabase/functions` directory:
+   ```bash
+   cp .env.example supabase/functions/.env
+   # Edit .env with your actual values
+   ```
+
+5. **Start local Supabase** (includes database, Edge Functions runtime, etc.):
+   ```bash
+   supabase start
+   ```
+
+6. **Run migrations**:
+   ```bash
+   supabase db push
+   ```
+
+7. **Serve Edge Functions locally**:
+   ```bash
+   supabase functions serve --no-verify-jwt
+   ```
+
+8. **Expose local endpoints to Slack** (in another terminal):
+   ```bash
+   # Using ngrok
+   ngrok http 54321
+   
+   # Or using Cloudflare Tunnel
+   cloudflare tunnel --url http://localhost:54321
+   ```
+
+9. **Configure Slack** to point to your ngrok/tunnel URL:
+   - Events: `https://YOUR-URL.ngrok.io/functions/v1/slack-events`
+   - Commands: `https://YOUR-URL.ngrok.io/functions/v1/slack-events`
+   - Interactivity: `https://YOUR-URL.ngrok.io/functions/v1/slack-events`
 
 ## Setup steps
 
-1. Create a Slack app and paste `manifest/slack_manifest.yaml` into the manifest editor.
-2. Install the app to your workspace.
-3. Create the Supabase tables using `supabase/schema.sql`.
-4. Fill out `.env`.
-5. Invite the app to the target channel.
-6. Open the app home once so Slack can initialize Home tab access.
+1. **Create a Supabase project**:
+   - Go to [supabase.com](https://supabase.com) and create a new project
+   - Note your project ref (from the URL) and service role key (from Settings > API)
+
+2. **Create a Slack app**:
+   - Go to [api.slack.com/apps](https://api.slack.com/apps)
+   - Click "Create New App" → "From an app manifest"
+   - Paste the content from `manifest/slack_manifest.yaml`
+   - **Important**: Update the request URLs in the manifest to point to your Supabase project:
+     - Replace `YOUR_PROJECT_REF` with your actual project ref
+     - URLs format: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/slack-events`
+   - Install the app to your workspace
+   - Note the bot token (starts with `xoxb-`) and signing secret
+
+3. **Run database migrations**:
+   ```bash
+   supabase db push
+   ```
+
+4. **Configure Edge Function secrets**:
+   ```bash
+   # Set all required secrets
+   supabase secrets set \
+     SLACK_BOT_TOKEN=xoxb-your-token \
+     SLACK_SIGNING_SECRET=your-secret \
+     GLAZE_DEFAULT_CHANNEL_ID=C1234567890 \
+     ADMIN_TRIGGER_TOKEN=$(openssl rand -hex 32)
+   
+   # Optional: Set OpenAI key
+   supabase secrets set OPENAI_API_KEY=sk-your-key
+   ```
+
+5. **Deploy Edge Functions**:
+   ```bash
+   supabase functions deploy slack-events
+   supabase functions deploy run-cycle
+   supabase functions deploy run-nudges
+   supabase functions deploy about --no-verify-jwt
+   ```
+
+6. **Configure scheduled jobs**:
+   - Open Supabase SQL Editor
+   - Run the SQL from `supabase/migrations/20260318000001_configure_cron.sql`
+   - Update the placeholders:
+     - `YOUR_PROJECT_REF` → your project ref
+     - `YOUR_SUPABASE_ANON_KEY` → your anon key (from Settings > API)
+     - `YOUR_ADMIN_TRIGGER_TOKEN` → same token from step 4
+
+7. **Invite the bot to your Slack channel**:
+   ```
+   /invite @Glaze
+   ```
+
+8. **Test the setup**:
+   - Open the Glaze app home tab in Slack
+   - Try a slash command: `/glaze-on`
+   - If you are a workspace admin, you will see the Admin Stats section at the bottom of the home tab
 
 ## Slash commands
 
@@ -107,94 +199,139 @@ Expose your local app to Slack using ngrok or Cloudflare Tunnel and set Slack re
 
 ## Scheduling
 
-This app separates interactive Slack requests from recurring jobs.
+Glaze uses Supabase's built-in `pg_cron` extension to trigger Edge Functions on a schedule:
 
-Recommended schedulers:
+- **Monday 08:00 UTC**: Runs `/run-cycle` to create coffee chat pairs
+- **Thursday 08:00 UTC**: Runs `/run-nudges` to send reminders to silent pairs
 
-- AWS EventBridge calling `/tasks/run-cycle`
-- AWS EventBridge calling `/tasks/run-nudges`
-- Vercel Cron or Supabase Edge Functions can also hit these endpoints
+The schedule is configured in `supabase/migrations/20260318000001_configure_cron.sql`.
 
-Example schedule:
+### Adjusting the schedule
 
-- Monday 08:00 AM UTC: `/tasks/run-cycle`
-- Thursday 08:00 AM UTC: `/tasks/run-nudges`
-
-Protect those endpoints using `X-Admin-Token: $ADMIN_TRIGGER_TOKEN`.
-
-### Supabase pg_cron (simplest option)
-
-Supabase projects ship with `pg_cron` and `pg_net` enabled. Run the schedule block at the bottom of `supabase/schema.sql` once in the **Supabase SQL Editor** — no CLI or extra deploy needed.
-
-Replace the placeholder values first:
+To change the schedule times, update the cron expressions in the SQL file:
 
 ```sql
--- Monday 08:00 UTC
-select cron.schedule(
-  'glaze-run-cycle',
-  '0 8 * * 1',
-  $$
-    select net.http_post(
-      url     := 'https://your-app.com/tasks/run-cycle',
-      headers := '{"x-admin-token": "your-admin-trigger-token"}'::jsonb
-    );
-  $$
-);
+-- Change to Monday 10:00 UTC
+'0 10 * * 1'  -- Monday at 10:00
 
--- Thursday 08:00 UTC
-select cron.schedule(
-  'glaze-run-nudges',
-  '0 8 * * 4',
-  $$
-    select net.http_post(
-      url     := 'https://your-app.com/tasks/run-nudges',
-      headers := '{"x-admin-token": "your-admin-trigger-token"}'::jsonb
-    );
-  $$
-);
+-- Change to Friday 09:00 UTC
+'0 9 * * 5'   -- Friday at 09:00
 ```
 
-Inspect jobs and run history:
+Then run the SQL in Supabase SQL Editor to update the jobs.
+
+### Monitoring scheduled jobs
+
+View scheduled jobs and their execution history:
 
 ```sql
-select * from cron.job;
-select * from cron.job_run_details order by start_time desc limit 20;
-```
+-- List all jobs
+SELECT * FROM cron.job;
 
-Remove a job:
-
-```sql
-select cron.unschedule('glaze-run-cycle');
+-- View recent executions
+SELECT * FROM cron.job_run_details 
+ORDER BY start_time DESC 
+LIMIT 20;
 ```
 
 ## Rotating keys
 
-### Slack
+All secrets are managed through Supabase CLI:
 
-1. Rotate the bot token in Slack app settings.
-2. Update `SLACK_BOT_TOKEN` in your secret store.
-3. Re-deploy.
+```bash
+# Update a single secret
+supabase secrets set SLACK_BOT_TOKEN=xoxb-new-token
 
-### Supabase
+# Update multiple secrets at once
+supabase secrets set \
+  SLACK_BOT_TOKEN=xoxb-new-token \
+  OPENAI_API_KEY=sk-new-key
 
-1. Rotate the service role key in Supabase.
-2. Update `SUPABASE_SERVICE_ROLE_KEY`.
-3. Re-deploy.
+# View current secrets (values are hidden)
+supabase secrets list
 
-### OpenAI
+# After updating secrets, redeploy affected functions
+supabase functions deploy slack-events
+supabase functions deploy run-cycle
+supabase functions deploy run-nudges
+```
 
-1. Rotate `OPENAI_API_KEY`.
-2. Re-deploy.
+### Rotating specific keys
 
-## Privacy
+**Slack Bot Token:**
+1. Generate new token in Slack app settings (OAuth & Permissions)
+2. Update secret: `supabase secrets set SLACK_BOT_TOKEN=xoxb-new-token`
+3. Redeploy: `supabase functions deploy`
 
-Glaze stores only:
+**Admin Trigger Token:**
+1. Generate new token: `openssl rand -hex 32`
+2. Update secret: `supabase secrets set ADMIN_TRIGGER_TOKEN=new-token`
+3. Update the pg_cron SQL and re-run it in the SQL Editor
+4. Redeploy: `supabase functions deploy`
 
-- Slack user id
-- participation state
-- frequency
-- snooze-until date
-- pair history and timestamps
+## Production deployment
+
+Glaze is deployed entirely on Supabase using Edge Functions. No separate hosting needed.
+
+```bash
+# Deploy all functions at once
+supabase functions deploy
+supabase functions deploy about --no-verify-jwt
+
+# Or deploy individually
+supabase functions deploy slack-events
+supabase functions deploy run-cycle
+supabase functions deploy run-nudges
+supabase functions deploy about --no-verify-jwt
+```
+
+### CI/CD Integration
+
+You can automate deployments using GitHub Actions:
+
+```yaml
+name: Deploy to Supabase
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: supabase/setup-cli@v1
+      - run: supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+```
+
+### Monitoring
+
+- **Function Logs**: View in Supabase dashboard → Edge Functions → Logs
+- **Database Logs**: Supabase dashboard → Database → Logs
+- **Scheduled Job Status**: Query `cron.job_run_details` table
+- **Error Tracking**: Consider integrating Sentry by adding the Sentry Deno SDK to functions
+
+### Performance
+
+- Edge Functions have **cold starts** (~100-500ms for first request)
+- Database queries are fast (< 50ms typical)
+- Slack API calls are the slowest part (200-500ms)
+- Total cycle runtime for 50 users: ~30-60 seconds
+
+### Costs
+
+With Supabase free tier:
+- ✅ Edge Functions: 500K requests/month included
+- ✅ Database: 500MB included
+- ✅ Auth: Unlimited
+
+Expected usage for typical workspace (< 100 users):
+- ~400 requests/week (Slack interactions + scheduled jobs)
+- < 10MB database storage
+- **Should stay within free tier indefinitely**
 - dm channel id and intro timestamp
 
 Glaze does **not** persist Slack message bodies.
@@ -228,6 +365,14 @@ Deploy as a Python ASGI app and expose the same endpoints.
 
 ## Tradeoffs / notes
 
-- If your workspace has an odd number of participants, one person will be left unmatched for the cycle. The current implementation rotates leftovers fairly over time.
+- If your workspace has an odd number of participants, one person will be left unmatched for the cycle. The algorithm rotates leftovers fairly over time.
 - Department matching is best-effort because Slack profile field names differ by workspace.
 - AI icebreakers fall back to a curated local list if OpenAI is unavailable.
+- Edge Functions have cold starts (~100-500ms) but scheduled jobs run warm.
+
+## Additional Documentation
+
+- [QUICKSTART.md](QUICKSTART.md) - 15-minute setup guide
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Technical architecture details
+- [Supabase Functions Docs](https://supabase.com/docs/guides/functions)
+- [Deno Manual](https://deno.land/manual)

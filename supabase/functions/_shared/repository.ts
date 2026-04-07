@@ -302,6 +302,23 @@ export class Repository {
     return (data || []) as PairEvent[];
   }
 
+  async getLatestCycleDate(): Promise<string | null> {
+    const { data, error } = await this.client
+      .from('glaze_pair_events')
+      .select('cycle_date')
+      .order('cycle_date', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      console.error('Error fetching latest cycle date:', error);
+      throw new Error(`Failed to fetch latest cycle date: ${error.message}`);
+    }
+
+    return (data as { cycle_date: string }).cycle_date;
+  }
+
   async listPairsForNudges(cycleDate: string): Promise<PairEvent[]> {
     const { data, error } = await this.client
       .from('glaze_pair_events')

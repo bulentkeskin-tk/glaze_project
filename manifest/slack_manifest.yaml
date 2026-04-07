@@ -39,16 +39,6 @@ features:
       description: Snooze Glaze for 1-4 weeks
       usage_hint: 1|2|3|4
       should_escape: false
-    - command: /glaze-run-now
-      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
-      description: Admin test run
-      usage_hint: "Trigger an immediate Glaze cycle for testing purposes"
-      should_escape: false
-    - command: /glaze-refresh-profiles
-      url: https://oozkjnyhvrndobksdyld.supabase.co/functions/v1/slack-events
-      description: Admin - re-sync all user profiles from Slack
-      usage_hint: "Re-fetches name and department for every user in the database"
-      should_escape: false
 oauth_config:
   scopes:
     bot:

@@ -2,7 +2,7 @@
 
 import { WebClient } from 'npm:@slack/web-api@7';
 import type { NudgeResult, ProcessQueueResult, QueueCycleResult, UserPreference } from './types.ts';
-import { addWeeks, parseDate, today } from './utils.ts';
+import { today } from './utils.ts';
 import { Repository } from './repository.ts';
 import { MatchingService } from './matching.ts';
 import { IcebreakerService } from './icebreakers.ts';
@@ -144,8 +144,11 @@ export class SchedulerService {
   private static readonly BOOST_MESSAGE_MAX = 3;  // conversation is self-sustaining above this
 
   async runNudges(batchSize = 50, verbose = false): Promise<NudgeResult> {
-    const currentDate = today();
-    const targetCycle = addWeeks(parseDate(currentDate), -1).split('T')[0];
+    const targetCycle = await this.repository.getLatestCycleDate();
+    if (!targetCycle) {
+      console.log('[run-nudges] no cycle found in glaze_pair_events, skipping');
+      return { target_cycle: null, nudges_sent: 0, boosts_sent: 0, channels: [] };
+    }
 
     const pairRows = await this.repository.claimNudgeBatch(targetCycle, batchSize);
     console.log(`[run-nudges] claimed ${pairRows.length} pairs for cycle ${targetCycle}`);

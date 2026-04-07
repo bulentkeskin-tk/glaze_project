@@ -79,7 +79,7 @@ export interface ProcessQueueResult {
 }
 
 export interface NudgeResult {
-  target_cycle: string;
+  target_cycle: string | null;
   nudges_sent: number;
   boosts_sent: number;
   channels: string[];
